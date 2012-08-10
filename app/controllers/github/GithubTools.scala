@@ -90,9 +90,11 @@ object GithubTools {
     val today = Calendar.getInstance().getTime()
     HookEvent( 
         today, 
-        hook.id,
+//        hook.id,
+        "",
         "Register web hooks",
-        hook.events, 
+//        hook.events,
+        "",
         Hooks, 
         NoState
         )
