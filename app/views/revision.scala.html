@@ -1,0 +1,84 @@
+@(commit: Commit, refreshing: Boolean, jenkinsJob: String, isAuth: Boolean)
+
+@import helper._
+
+@main("Scala Commits") {
+  <h1>Commit Details</h1>
+
+  <p><a href="/">[all commits]</a></p>
+
+  <p>@commit.dateString (@commit.githubUser / @commit.authorName),
+  <a href="https://github.com/scala/scala/commit/@commit.sha" target="_blank">@{commit.sha.take(10)} on github</a></p>
+
+
+  @if(refreshing) {
+    @commit.state.describe(refreshing)
+  } else {
+    @defining((call: play.api.mvc.Call) => (html: Html) => { if (isAuth) form(call)(html) else Html.empty }) { aform =>
+    @defining(commit.state) { cs => @cs match {
+      case Missing => {
+        <p>@commit.state.describe(refreshing)</p>
+        <p>@aform(routes.Application.startBuild(commit.sha)) {
+          <input type="submit" value="start jenkins build"/>
+        }</p>
+      }
+
+      case New => {
+        <p>@commit.state.describe(refreshing)</p>
+        <p>@aform(routes.Application.refresh(commit.sha)) {
+          <input type="submit" value="start build now"/>
+        }</p>
+        <p>Actions - <strong>careful</strong>, cannot be undone!</p>
+        <p>@aform(routes.Application.cancelBuild(commit.sha)) {
+          <input type="submit" value="remove from build queue"/>
+        }</p>
+      }
+  
+      case Searching => {
+        <p>@commit.state.describe(refreshing) (UUID: @commit.jenkinsBuildUUID.get)</p>
+        <p>@aform(routes.Application.refresh(commit.sha)) {
+          <input type="submit" value="refresh state"/>
+        }</p>
+        <p>Actions - <strong>careful</strong>, cannot be undone!</p>
+        <p>@aform(routes.Application.cancelBuild(commit.sha)) {
+          <input type="submit" value="cancel search"/>
+        }</p>
+      }
+  
+      case Running | Downloading => {
+        <p>@commit.state.describe(refreshing): <a href="https://scala-webapps.epfl.ch/jenkins/job/@jenkinsJob/@commit.jenkinsBuild.get" target="_blank">#@commit.jenkinsBuild.get</a></p>
+        <p>@aform(routes.Application.refresh(commit.sha)) {
+          <input type="submit" value="refresh state"/>
+        }</p>
+        <p>Actions - <strong>careful</strong>, cannot be undone!</p>
+        <p>@aform(routes.Application.cancelBuild(commit.sha)) {
+          <input type="submit" value="cancel following this build"/>
+        }</p>
+      }
+  
+      case Done => {
+        <p>@commit.state.describe(refreshing): <a href="https://scala-webapps.epfl.ch/jenkins/job/@jenkinsJob/@commit.jenkinsBuild.get" target="_blank">#@commit.jenkinsBuild.get</a>. Result:
+          @if(commit.buildSuccess.get) {
+            <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/>
+          } else {
+            <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/>
+          }
+        </p>
+
+        <p><a href="https://scala-webapps.epfl.ch/jenkins/job/@jenkinsJob/@commit.jenkinsBuild.get/consoleFull" target="_blank"/>build log</a></p>
+        <ul>
+        @models.Artifact.artifactsFor(commit.sha).map { artifact =>
+          <li><a href="@commit.sha/artifacts/@artifact.filePath">@artifact.filePath</a></li>
+        }
+        </ul>
+        <p>Actions - <strong>careful</strong>, cannot be undone!</p>
+        <p>@aform(routes.Application.cancelBuild(commit.sha)) {
+          <input type="submit" value="unlink from jenkins build"/>
+        }</p>
+        <p>@aform(routes.Application.startBuild(commit.sha)) {
+          <input type="submit" value="unlink and start new jenkins build"/>
+        }</p>
+      }
+    }}}
+  }
+}
