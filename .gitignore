@@ -3,6 +3,8 @@ logs
 /project/project
 /project/target
 /target
+/.target
+/bin
 
 dist
 
