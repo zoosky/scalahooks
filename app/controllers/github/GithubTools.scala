@@ -10,6 +10,8 @@ import models._
 import play.libs.Json
 import java.util.Calendar
 import java.text.SimpleDateFormat
+import controllers.Config
+import controllers.Config
 
 private[github] case class GithubAuthor(email: String, name: String, date: String)
 private[github] case class GithubUser(url: String, gravatar_id: String, avatar_url: String, login: String, id: Int)
