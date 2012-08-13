@@ -2,29 +2,21 @@ package controllers
 
 import play.api._
 import play.api.mvc._
-
 import play.api.db._
-
 import play.api.libs.openid._
 import play.api.libs.concurrent.{Redeemed, Thrown}
-
 import play.api.libs.concurrent.Akka
 import play.api.Play.current
-
 import akka.actor.Props
 import akka.util.duration._
 import play.api.libs.concurrent.Promise
 import java.util.concurrent.TimeoutException
-
 import anorm._
 import java.util.UUID
-
 import collection.{mutable => imm}
-
 import github._
 import jenkins._
-import models._
-
+import models._ 
 import UpdateRepoActor.{submitUpdateTaskAwait, appStateAwait}
 import BuildTasksDispatcher.{submitBuildTaskAwait, submitBuildTaskFuture, busyListAwait}
 
@@ -51,7 +43,7 @@ object Application extends Controller {
    */
   
   def login(message: String) = Action {
-    Ok(views.html.login(message))
+    Ok(views.html.login(message))  
   }
   
   def loginPost() = Action { implicit request =>
@@ -101,6 +93,9 @@ object Application extends Controller {
     else {
       val commits = Commit.commits(page = page)
       handleTimeout(e => "Timeout when reading list of refreshing commits: "+ e.toString) {
+        // setup web hook
+        CoordBot.setupGithubHook()
+        Logger.info("Setup web hook")
         val refreshing = busyListAwait
         Ok(views.html.index(commits, refreshing, appStateAwait, page, isAuth))
       }
@@ -273,7 +268,7 @@ object Application extends Controller {
 
     Commit.commit(sha) match {
       case Some(commit) =>
-        commit.state match {
+        commit.state match { 
           case Missing | Done =>
             Logger.info("Nothing to refresh for commit "+ commit)
 

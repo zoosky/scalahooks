@@ -18,7 +18,7 @@ object Config {
   val jenkinsUrl = "https://scala-webapps.epfl.ch/jenkins/"
   val jenkinsJob = "test"
     
-  val hookUrl = "http://scalahookevents.herokuapp.com/"
+  val hookUrl = "http://scalahooks.herokuapp.com/"
 
 //  val localGitRepoDir = "git-repo"
 

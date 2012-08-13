@@ -12,6 +12,9 @@ import java.util.Calendar
 import java.text.SimpleDateFormat
 import controllers.Config
 import controllers.Config
+import play.api.Logger
+import play.api.libs.json
+//import play.api.libs.json.Json
 
 private[github] case class GithubAuthor(email: String, name: String, date: String)
 private[github] case class GithubUser(url: String, gravatar_id: String, avatar_url: String, login: String, id: Int)
@@ -23,7 +26,7 @@ private[github] case class GithubCommitDetails(url: String, committer: GithubAut
 /* For revisionInfo, when reading a single commit's info */
 private[github] case class DetailedGithubCommit(committer: Option[GithubUser], url: String, author: Option[GithubUser], parents: JsValue, commit: GithubCommitDetails, sha: String, stats: JsValue, files: JsValue)
 /* For initGithubHook, when reading the Github response */
-private[github] case class DetailedGithubHook(url: String, updated_at: String, created_at: String, name: String, events: String, active: JsValue, config: JsValue, id: String)
+//private[github] case class DetailedGithubHook(url: String, updated_at: String, created_at: String, name: String, events: String, active: JsValue, config: JsValue, id: String)
 
 private[github] object GithubJsonProtocol extends DefaultJsonProtocol {
   implicit val githubAuthorFormat = jsonFormat3(GithubAuthor)
@@ -31,7 +34,7 @@ private[github] object GithubJsonProtocol extends DefaultJsonProtocol {
   implicit val githubCommitDetailsFormat = jsonFormat5(GithubCommitDetails)
 //  implicit val githubCommitFormat = jsonFormat6(GithubCommit)
   implicit val detailedGithubCommitFormat = jsonFormat8(DetailedGithubCommit)
-  implicit val detailedGithubHookFormat = jsonFormat8(DetailedGithubHook)
+  //implicit val detailedGithubHookFormat = jsonFormat8(DetailedGithubHook)
 }
 
 object GithubTools {
@@ -72,35 +75,7 @@ object GithubTools {
     )
   }
 
-  def setupGithubHook(hookUrl: String): HookEvent = {
-    /* create a generic web hook 
-       supported events: "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public" 
-     */
-    val req = url("https://api.github.com/repos/"+githubUser+"/"+githubRepo+"/hooks/" )
-    
-    
-    val reqWithData = req << Json.toJson(Map("name" -> "web", 
-                                    "events" -> "[\"push\", \"issues\", \"issue_comment\", \"commit_comment\", \"pull_request\", \"gollum\", \"watch\", \"download\", \"fork\", \"fork_apply\", \"member\", \"public\"]", 
-                                    "active" -> true,
-                                    "url" -> hookUrl)).toString
 
-   val result = silentHttp( reqWithData >- { jsonString =>
-        Json.parse(jsonString)
-      }
-   ) 
-   
-    val today = Calendar.getInstance().getTime()
-    HookEvent( 
-        today, 
-//        hook.id,
-        "",
-        "Register web hooks",
-//        hook.events,
-        "",
-        Hooks, 
-        NoState
-        )
-  }
     
 /*
 fetching new revisions is not done through github. there are problems with the pagination scheme due to the graph nature of commits.
