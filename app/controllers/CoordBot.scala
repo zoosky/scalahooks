@@ -90,9 +90,9 @@ object CoordBot extends Controller {
     
     // URL request
     //val req = url(gitHubUrl)
-    val req = url("https://api.github.com/repos/scala/scala/hooks")
+    val req = url("https://api.github.com/repos/taolee/scala/pulls")
     // JSON payload
-    val jsonObject = generate(Map(
+    /*val jsonObject = generate(Map(
                                    "name" -> "web", 
                                    "events" -> List(
                                        "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public"
@@ -102,11 +102,15 @@ object CoordBot extends Controller {
                                        "url" -> hookUrl
                                    )
                                  )
-                             )
+                             )*/
+    val jsonObject = generate(Map("title" -> "Amazing new feature",
+                              "body" -> "Please pull this in!",
+                              "head" -> "octocat:new-feature",
+                              "base" -> "master"))
     Logger.info("JSON payload: " + jsonObject)
     // turn the request into POST 
-    //val reqWithData = req << (jsonObject, "application/json")
-    val reqWithData = url("https://api.github.com/repos/scala/scala/pulls")
+    val reqWithData = req << (jsonObject, "application/json")
+    //val reqWithData = url("https://api.github.com/repos/taolee/scala/pulls")
     // send HTTP request, return a string
     var result = silentHttp( reqWithData >- { jsonString =>
         Logger.error("Returned string: " + jsonString)
