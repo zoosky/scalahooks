@@ -90,7 +90,7 @@ object CoordBot extends Controller {
     
     // URL request
     //val req = url(gitHubUrl)
-    val req = url("https://api.github.com/repos/taolee/scala/pulls")
+    val req = url("https://api.github.com/repos/taolee/scalahooks/issues")
     // JSON payload
     /*val jsonObject = generate(Map(
                                    "name" -> "web", 
@@ -103,33 +103,40 @@ object CoordBot extends Controller {
                                    )
                                  )
                              )*/
-    val jsonObject = generate(Map("title" -> "Amazing new feature",
+    
+    /*val jsonObject = generate(Map("title" -> "Amazing new feature",
                               "body" -> "Please pull this in!",
                               "head" -> "octocat:new-feature",
-                              "base" -> "master"))
+                              "base" -> "master"))*/
+    val jsonObject = generate(Map("body" -> "nice change",
+                                  "in_reply_to" -> 1
+                              )
+                              )
     Logger.info("JSON payload: " + jsonObject)
     // turn the request into POST 
-    val reqWithData = req << (jsonObject, "application/json")
-    //val reqWithData = url("https://api.github.com/repos/taolee/scala/pulls")
+    val reqWithData = req
+    //val reqWithData = url("https://api.github.com/repos/taolee/scala/pulls/1/comments") 
+    //val reqWithData = req << (jsonObject, "application/json")
+    //val reqWithData = url("https://api.github.com/repos/scala/scala/issues")
     // send HTTP request, return a string
-    var result = silentHttp( reqWithData >- { jsonString =>
-        Logger.error("Returned string: " + jsonString)
-        jsonString
-      }
+    silentHttp( reqWithData >- { jsonString =>
+        Logger.info("Returned string: " + jsonString)
+        // check the returned result
+        try {
+          (Json.parse(jsonString) \ "id").asOpt[String] match {
+            case Some(id) => 
+              Logger.info("id = " + id + " returned from web hook")
+            case None =>
+              Logger.error("No id information returned from web hook " + "\n" + jsonString)
+          }
+        }
+        catch {
+          case _ =>
+            Logger.error("Expecting JSON data: " + jsonString)
+          }
+        }
     ) 
-    // check the returned result
-    try {
-      (Json.parse(result) \ "id").asOpt[String] match {
-        case Some(id) => 
-          Logger.info("id = " + id + " returned from web hook")
-        case None =>
-          Logger.error("No id information returned from web hook " + "\n" + result)
-      }
-    }
-    catch {
-      case _ =>
-        Logger.error("Expecting JSON data: " + result)
-    }
+    
   }
   
   def addLabelOnPullReq(PullReq: String, label: String) = TODO
