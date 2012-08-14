@@ -27,11 +27,10 @@ object CoordBot extends Controller {
    * */
   
   val gitHubUser = "taolee"
-  val gitHubRepo = "scala"
+  val gitHubRepo = "scalahooks"
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
-  //val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo+"/hooks"
+  val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo+"/hooks"
   val hookUrl = "http://requestb.in/1l1iohm1"
-  val gitHubUrl = hookUrl
    
   def receiveGithubMsg = Action { msg =>
     Logger.info(msg.body.toString())
@@ -89,10 +88,9 @@ object CoordBot extends Controller {
      */
     
     // URL request
-    //val req = url(gitHubUrl)
-    val req = url("https://api.github.com/repos/taolee/scalahooks/issues")
+    val req = url(gitHubUrl)
     // JSON payload
-    /*val jsonObject = generate(Map(
+    val jsonObject = generate(Map(
                                    "name" -> "web", 
                                    "events" -> List(
                                        "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public"
@@ -102,26 +100,14 @@ object CoordBot extends Controller {
                                        "url" -> hookUrl
                                    )
                                  )
-                             )*/
+                             )
     
-    /*val jsonObject = generate(Map("title" -> "Amazing new feature",
-                              "body" -> "Please pull this in!",
-                              "head" -> "octocat:new-feature",
-                              "base" -> "master"))*/
-    val jsonObject = generate(Map("body" -> "nice change",
-                                  "in_reply_to" -> 1
-                              )
-                              )
     Logger.info("JSON payload: " + jsonObject)
     // turn the request into POST 
-    val reqWithData = req
-    //val reqWithData = url("https://api.github.com/repos/taolee/scala/pulls/1/comments") 
-    //val reqWithData = req << (jsonObject, "application/json")
-    //val reqWithData = url("https://api.github.com/repos/scala/scala/issues")
+    val reqWithData = req << (jsonObject, "application/json")
     // send HTTP request, return a string
-    silentHttp( reqWithData >- { jsonString =>
+    silentHttp( reqWithData.as_!("taolee", "tao1chun") >- { jsonString =>
         Logger.info("Returned string: " + jsonString)
-        // check the returned result
         try {
           (Json.parse(jsonString) \ "id").asOpt[String] match {
             case Some(id) => 
@@ -136,7 +122,6 @@ object CoordBot extends Controller {
           }
         }
     ) 
-    
   }
   
   def addLabelOnPullReq(PullReq: String, label: String) = TODO
