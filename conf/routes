@@ -36,4 +36,5 @@ POST    /rev/:sha/refresh            controllers.Application.refresh(sha: String
 GET     /assets/*file                controllers.Assets.at(path="/public", file)
 
 # Github notifications
-POST    /githubMsg                controllers.CoordBot.receiveGithubMsg()
+POST    /githubMsg                   controllers.CoordBot.receiveGithubMsg()
+
