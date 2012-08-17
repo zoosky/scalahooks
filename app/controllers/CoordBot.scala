@@ -134,13 +134,16 @@ object CoordBot extends Controller {
   }
   
   def receiveGithubMsg = Action { msg =>
-    Logger.debug(msg.body.toString())
-    msg.body.asJson.map { json =>
-      Logger.info("Receive JSON payload: " + Json.stringify(json))
-      var issueAction, issueTitle, issueBody = "" 
-      var commentBody, commentCreateTime, commentUpdateTime, commentUserLogin = ""
-      var issueNumber, commentId: Long = -1
-      // action
+    Logger.info(msg.body.toString())
+    msg.body.asFormUrlEncoded.map { urlenc =>
+      val urlencPayload = (urlenc.get("payload")) match {
+        case Some(jsonStringSeq) => val jsonString = jsonStringSeq.head; 
+          Logger.info("Receive JSON payload: " + jsonString)
+          var issueAction, issueTitle, issueBody = "" 
+          var commentBody, commentCreateTime, commentUpdateTime, commentUserLogin = ""
+          var issueNumber, commentId: Long = -1
+          val json = Json.parse(jsonString)
+          // action
       (json \ "action").asOpt[String].map { action => 
         issueAction = action
       }
@@ -245,9 +248,13 @@ object CoordBot extends Controller {
         }
       }
       printIssueMap
-      Ok("We are done")
+      //Ok("We are done")
+        case None => 
+           //Ok("We are done")
+      }
+       Ok("We are done")
     }.getOrElse {
-      BadRequest("Expecting JSON data")
+      BadRequest("Expecting URL-encoded data")
     }
   }
   
