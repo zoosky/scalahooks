@@ -121,9 +121,9 @@ object CoordBot extends Controller {
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
-  val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
+  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
-  //val hookUrl = "http://requestb.in/106k14o1"
+  val hookUrl = "http://requestb.in/106k14o1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@tao", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   var specifiedReviewer = new ArrayBuffer[String](1)
