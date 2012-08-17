@@ -134,7 +134,7 @@ object CoordBot extends Controller {
   }
   
   def receiveGithubMsg = Action { msg =>
-    //Logger.info(msg.body.toString())
+    Logger.info(msg.body.toString())
     msg.body.asJson.map { json =>
       Logger.info("Receive JSON payload: " + Json.stringify(json))
       var issueAction, issueTitle, issueBody = "" 
