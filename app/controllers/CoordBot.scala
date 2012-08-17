@@ -123,7 +123,7 @@ object CoordBot extends Controller {
   val gitHubRepo = "scalahooks"
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
-  val hookUrl = "http://requestb.in/1l1iohm1"
+  val hookUrl = "http://requestb.in/106k14o1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@tao", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   var specifiedReviewer = new ArrayBuffer[String](1)
@@ -134,7 +134,7 @@ object CoordBot extends Controller {
   }
   
   def receiveGithubMsg = Action { msg =>
-    Logger.info(msg.body.toString())
+    //Logger.info(msg.body.toString())
     msg.body.asJson.map { json =>
       Logger.info("Receive JSON payload: " + Json.stringify(json))
       var issueAction, issueTitle, issueBody = "" 
@@ -205,15 +205,20 @@ object CoordBot extends Controller {
               //check build and test successful
               getBuildBotState(commentBody) match {
                 case BuildStart           => "Do nothing"
+                  Logger.info("Build started")
                   issue.updateBState(BuildStart)
                 case BuildSuccess         => "Wait for test success"; 
+                  Logger.info("Build successful")
                   issue.updateBState(BuildSuccess)
-                case BuildFailure         => "Remove label"; 
+                case BuildFailure         => "Remove label";
+                  Logger.info("Build failed")
                   removeLabelOnIssue(issueNumber, "tested")
                   issue.updateBState(BuildFailure)
                 case TestStart            => "Do nothing"
+                  Logger.info("Test started")
                   issue.updateBState(TestStart)
                 case TestSuccess          => "Check build success"
+                  Logger.info("Test successful")
                   if (issue.getBState == BuildSuccess) {
                     Logger.info("Build and test successful!")
                     Logger.info("Label \"tested\" added to issue " + issueNumber.toString())
@@ -221,6 +226,7 @@ object CoordBot extends Controller {
                   }
                   issue.updateBState(TestSuccess)
                 case TestFailure          => "Remove label"; 
+                  Logger.info("Test failed")
                   Logger.info("Label \"tested\" removed from issue " + issueNumber.toString())
                   removeLabelOnIssue(issueNumber, "tested")
                 case SameBuildBotState    => "Do nothing"
@@ -293,7 +299,7 @@ object CoordBot extends Controller {
   def printIssueMap = {
     for (key <- issueMap.keySet) {
       issueMap.get(key) match {
-        case Some(issue) => println(issue.toString()) 
+        case Some(issue) => Logger.debug(issue.toString()) 
         case None => "Do nothing"
       }
     }
@@ -301,15 +307,13 @@ object CoordBot extends Controller {
   
   def illegalReviewer(msg: String): Boolean = {
     if (msg.contains("@")) {
-      val tokens = msg.split("@")
-      var tokens2 = new ArrayBuffer[String](1)
-      for (token <- tokens)
-        tokens2 = tokens2.++:(token.split(" "))
-      specifiedReviewer = tokens2.filter(token => token.contains("@"))
+      var tokens = new ArrayBuffer[String](1)
+      tokens = tokens.++:(msg.split(" "))
+      specifiedReviewer = tokens.filter(token => token.contains("@"))
       Logger.debug(specifiedReviewer.toString())
       for (token <- specifiedReviewer; if !reviewerList.contains(token)) 
-        yield return false
-      true
+        yield return true
+      false
     }
     else
       false
@@ -361,7 +365,9 @@ object CoordBot extends Controller {
        }
      */
     val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/comments")
-    val warningMsg = "Warning: unrecognized reviewers by" + user + ": " + specifiedReviewer.map(_.drop(1)).toString()
+    var str = ""
+    specifiedReviewer.map(_.drop(1)).map(r => str += r + ", ")
+    val warningMsg = "Warning: unrecognized reviewers by @" + user + " : " + str
     val jsonObject = generate(Map(
                                    "body" -> warningMsg
                                  )
@@ -392,7 +398,7 @@ object CoordBot extends Controller {
          "label"
        ]
      */
-    val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/labels/")
+    val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/labels")
     val jsonObject = generate(List(label)
                              )
     val reqWithData = req << (jsonObject, "application/json")
