@@ -121,9 +121,9 @@ object CoordBot extends Controller {
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
-  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
+  val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
-  val hookUrl = "http://requestb.in/106k14o1"
+  //val hookUrl = "http://requestb.in/106k14o1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@tao", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   var specifiedReviewer = new ArrayBuffer[String](1)
@@ -310,7 +310,9 @@ object CoordBot extends Controller {
       var tokens = new ArrayBuffer[String](1)
       tokens = tokens.++:(msg.split(" "))
       specifiedReviewer = tokens.filter(token => token.contains("@"))
-      Logger.debug(specifiedReviewer.toString())
+      var str = ""
+      specifiedReviewer.map(r => str += r + " ") 
+      Logger.debug("Specified reviewers: " + str)
       for (token <- specifiedReviewer; if !reviewerList.contains(token)) 
         yield return true
       false
@@ -320,7 +322,7 @@ object CoordBot extends Controller {
   }
   
   def issueReviewed(msg: String): Boolean = {
-    val reviewedMsg = "LGTM"
+    val reviewedMsg = "LGTM" // Looks Good To Me
     if (msg.contains(reviewedMsg))
       true
     else
@@ -366,7 +368,7 @@ object CoordBot extends Controller {
      */
     val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/comments")
     var str = ""
-    specifiedReviewer.map(_.drop(1)).map(r => str += r + ", ")
+    specifiedReviewer.map(_.drop(1)).map(r => str += r + " ")
     val warningMsg = "Warning: unrecognized reviewers by @" + user + " : " + str
     val jsonObject = generate(Map(
                                    "body" -> warningMsg
@@ -404,18 +406,6 @@ object CoordBot extends Controller {
     val reqWithData = req << (jsonObject, "application/json")
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
         Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "name").asOpt[String] match {
-            case Some(name) => 
-              Logger.info("Label " + label + " is added to issue " + issueNumber.toString())
-            case None =>
-              Logger.error("Label " + label + " does not exist?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-          }
         }
     ) 
   }
