@@ -101,6 +101,34 @@ object GithubAPI {
     ) 
   }
   
+  def getLabelsOnIssue(issueNumber: Long): String = {
+    /* 
+     * no input parameters
+     */
+    val req = url(gitHubUrl+"/issues/"+issueNumber.toString()+"/labels")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
+  def getLabels: String = {
+    /* 
+     * no input parameters
+     */
+    val req = url(gitHubUrl+"/labels")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
   def addIssueComment(issueNumber: Long, comment: String) = {
     /* 
      * create an issue comment
