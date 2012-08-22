@@ -35,6 +35,8 @@ object CoordBot extends Controller {
   var commentBody, commentCreateTime, commentUpdateTime, commentUserLogin = ""
   var issueNumber, commentId: Long = -1
   def resetIssueCommentFields = {issueAction = ""; issueTitle = ""; issueBody = ""; commentBody = ""; commentCreateTime = ""; commentUpdateTime = ""; commentUserLogin = ""; issueNumber = -1; commentId = -1}
+  def resetIssueFields = {issueNumber = -1; issueAction = ""; issueTitle = ""; issueBody = "";}
+  def resetCommentFields = {commentId = -1; commentBody = ""; commentCreateTime = ""; commentUpdateTime = ""; commentUserLogin = "";}
   var totalLabelList = new LinkedList[String]()
   
   val dateParser = ISODateTimeFormat.dateTimeNoMillis();
@@ -111,7 +113,7 @@ object CoordBot extends Controller {
               Logger.error("Illegal reviewers: " + specifiedReviewer.toString())
               var str = ""
               specifiedReviewer.map(_.drop(1)).map(r => str += r + " ")
-              val comment = "Coord Bot: unrecognized reviewers by @" + commentUserLogin + " : " + str
+              val comment = "Web Bot: unrecognized reviewers by @" + commentUserLogin + " : " + str
               GithubAPI.addIssueComment(issueNumber, comment)
             }
             // update data structure
@@ -134,8 +136,46 @@ object CoordBot extends Controller {
     }
   }
   
+  def checkIssueView(issueNumber: Long) = {
+    
+  }
+  
   def updateIssueView(issueNumber: Long): (BuildBotState, ReviewStatus, List[String], List[Comment]) = {
-    (UnknownBuildBotState, ReviewNone, List(), List())
+    var labelList = new LinkedList[String]()
+    var bState = UnknownBuildBotState
+    var rStatus = UnknownReviewStatus
+    val commentString = GithubAPI.getCommentsOnIssue(issueNumber)
+    try {
+      val comments = com.codahale.jerkson.Json.parse[List[String]](commentString)
+      var commentList = for (comment <- comments) yield {
+        resetCommentFields
+        // parse a new comment
+        val commentJson = Json.parse(comment)
+        (commentJson \ "id").asOpt[Long] match {
+          case Some(id) => commentId = id
+          case None => throw new MalFormedJSONPayloadException("Missing comment id")
+        }
+        (commentJson \ "body").asOpt[String] match {
+          case Some(body) => commentBody = body
+          case None => throw new MalFormedJSONPayloadException("Missing comment body")
+        }
+        (commentJson \ "created_at").asOpt[String] match {
+          case Some(createTime) => commentCreateTime = createTime
+          case None => throw new MalFormedJSONPayloadException("Missing comment created_at time stamp")
+        }
+        (commentJson \ "updated_at").asOpt[String] match {
+          case Some(updateTime) => commentUpdateTime = updateTime
+          case None => throw new MalFormedJSONPayloadException("Missing comment updated_at time stamp")
+        }
+        new Comment(CommentCreated, commentId, commentBody, commentCreateTime, commentUpdateTime)
+      } 
+      
+    }
+    catch {
+      case _ =>
+        Logger.error("Expecting JSON data")
+    }
+    (UnknownBuildBotState, UnknownReviewStatus, List(), List())
   }
   
   /*
@@ -219,7 +259,7 @@ object CoordBot extends Controller {
   }
   
   def coordBotComment(msg: String): Boolean = {
-    return msg.contains("Coord Bot:")
+    return msg.contains("Web Bot:")
   }
   
   def getBuildBotState(msg: String): BuildBotState = {
@@ -258,7 +298,7 @@ object CoordBot extends Controller {
       val issues = com.codahale.jerkson.Json.parse[List[String]](issueString) 
       issueMap.clear()
       for (issue <- issues) {
-        resetIssueCommentFields
+        resetIssueFields
         // parse a new issue
         val issueJson = Json.parse(issue)
         (issueJson \ "number").asOpt[Long] match {
@@ -280,6 +320,7 @@ object CoordBot extends Controller {
               val commentString = GithubAPI.getCommentsOnIssue(issueNumber)
               val comments = com.codahale.jerkson.Json.parse[List[String]](commentString)
               for (comment <- comments) {
+                resetCommentFields
                 // parse a new comment
                 val commentJson = Json.parse(comment)
                 (commentJson \ "id").asOpt[Long] match {

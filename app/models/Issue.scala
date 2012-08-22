@@ -33,17 +33,18 @@ class Issue (number: Long, title: String, body: String) {
   def setRCounter(counter: Long) = {rCounter = counter}
   def checkRStatus: ReviewStatus = {
     rStatus match {
-      case ReviewNone => "Do nothing";        rStatus
-      case ReviewFault => "Do nothing";       rStatus
-      case ReviewOpen => "Wait until tested"; rStatus
-      case ReviewWait => rCounter -= minInterval 
+      case ReviewNone             => "Do nothing";        rStatus
+      case ReviewFault            => "Do nothing";        rStatus
+      case ReviewOpen             => "Wait until tested"; rStatus
+      case ReviewWait             => rCounter -= minInterval 
         if (rCounter < 0) {
-          rStatus = ReviewExpired; rStatus
+          rStatus = ReviewExpired;                        rStatus
         } 
         else  
           rStatus
-      case ReviewExpired => rStatus 
-      case ReviewDone => rStatus
+      case ReviewExpired          =>                      rStatus 
+      case ReviewDone             =>                      rStatus
+      case UnknownReviewStatus    =>                      rStatus
     }
   }
   override def toString(): String = {
@@ -61,6 +62,7 @@ sealed trait BuildBotState {
 
   def describe =
     this match {
+      case BuildTestNone          => "no build/test information"
       case BuildStart             => "build started"
       case BuildSuccess           => "build successful"
       case BuildFailure           => "build failed"
@@ -86,6 +88,7 @@ object BuildBotState {
   def apply(s: String): BuildBotState = mapToString.map(_.swap).apply(s)
 }
 
+case object BuildTestNone         extends BuildBotState
 case object BuildStart            extends BuildBotState 
 case object BuildSuccess          extends BuildBotState
 case object BuildFailure          extends BuildBotState
@@ -105,6 +108,7 @@ case object ReviewOpen            extends ReviewStatus
 case object ReviewWait            extends ReviewStatus
 case object ReviewExpired         extends ReviewStatus
 case object ReviewDone            extends ReviewStatus
+case object UnknownReviewStatus   extends ReviewStatus
 
 sealed trait CommentAction {}
 
