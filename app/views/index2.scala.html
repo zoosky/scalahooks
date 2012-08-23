@@ -1,0 +1,25 @@
+@(issues: List[Issue])
+
+@import helper._
+
+@main("Scala Issues") {
+  <h1>Recent Open Issues</h1>
+
+  <ul>
+    @issue.map { issue =>
+      <li>
+        @* add links: to github, to page with actions for the build, to jenkins page *@
+        @commit.dateString (@commit.githubUser / @commit.authorName),
+        <a href="rev/@commit.sha">@{commit.sha.take(10)}</a>,
+        @commit.state.describe(refreshing(commit.sha))
+        @if(commit.buildSuccess.isDefined && commit.buildSuccess.get) {
+          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/>
+        }
+        @if(commit.buildSuccess.isDefined && !commit.buildSuccess.get) {
+          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/>
+        }
+      </li>
+    }
+  </ul>
+
+}

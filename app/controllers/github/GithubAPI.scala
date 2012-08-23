@@ -129,7 +129,7 @@ object GithubAPI {
     ) 
   }
   
-  def addIssueComment(issueNumber: Long, comment: String) = {
+  def addCommentOnIssue(issueNumber: Long, comment: String) = {
     /* 
      * create an issue comment
        {
@@ -160,6 +160,15 @@ object GithubAPI {
     ) 
   }
   
+  def deleteCommentOnIssue(id: Long) = {
+    val req = url(gitHubUrl+"/issues/comments/"+id.toString())
+    val reqWithData = req
+    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Response: " + response)
+      }
+    ) 
+  }
+  
   def addLabelOnIssue(issueNumber: Long, label: String) = {
     /* 
      * create an issue label
@@ -177,7 +186,7 @@ object GithubAPI {
     ) 
   }
   
-  def removeLabelOnIssue(issueNumber: Long, label: String) = {
+  def deleteLabelOnIssue(issueNumber: Long, label: String) = {
     val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/labels/" + label)
     val reqWithData = req
     silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>

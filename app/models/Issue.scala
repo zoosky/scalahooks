@@ -1,15 +1,18 @@
 package models
 import scala.collection.mutable.LinkedList
+import scala.collection.mutable.ListBuffer
 
-case class MalFormedJSONPayloadException(ex: String) extends RuntimeException {
-  override def toString: String = ex
+case class MalFormedJSONPayloadException(msg: String) extends RuntimeException {
+  override def toString: String = msg
 }
 
-class Comment (action: CommentAction, id: Long, body: String, createTime: String, updateTime: String) {
+class Comment (action: CommentAction, id: Long, body: String, createTime: String, updateTime: String, userLogin: String) {
   def Id: Long = {id}
   def Body: String = {body}
   def CreateTime: String = {createTime}
   def UpdateTime: String = {updateTime}
+  def User: String = {userLogin}
+  def Action = {action}
 }
 
 class Issue (number: Long, title: String, body: String) {
@@ -17,12 +20,9 @@ class Issue (number: Long, title: String, body: String) {
   val waitInterval = minInterval * 48
   var rStatus: ReviewStatus = ReviewNone
   var rCounter: Long = -1
-  var bState: BuildBotState = UnknownBuildBotState
-  var labels = LinkedList[String]()
-  var commentList = new LinkedList[Comment]()
-  def insertComment(comment: Comment) = {commentList = commentList.:+(comment)}
-  def insertComments(comments: List[Comment]) = {commentList = commentList.++:(comments)}
-  def clearComments = {commentList = commentList.drop(commentList.size)}
+  var bState: BuildBotState = BuildNone
+  var labels = new ListBuffer[String]()
+  var commentList = new ListBuffer[Comment]()
   def Number: Long = {number}
   def Title: String = {title}
   def Body: String = {body}
@@ -31,47 +31,33 @@ class Issue (number: Long, title: String, body: String) {
   def getRStatus: ReviewStatus = {rStatus}
   def updateRStatus(status: ReviewStatus) = {rStatus = status}
   def setRCounter(counter: Long) = {rCounter = counter}
-  def checkRStatus: ReviewStatus = {
+  def checkRStatus = {
     rStatus match {
-      case ReviewNone             => "Do nothing";        rStatus
-      case ReviewFault            => "Do nothing";        rStatus
-      case ReviewOpen             => "Wait until tested"; rStatus
-      case ReviewWait             => rCounter -= minInterval 
+      case ReviewOpen             => rCounter -= minInterval 
         if (rCounter < 0) {
-          rStatus = ReviewExpired;                        rStatus
+          "Add a warning comment"; 
+          rCounter = waitInterval
         } 
         else  
-          rStatus
-      case ReviewExpired          =>                      rStatus 
-      case ReviewDone             =>                      rStatus
-      case UnknownReviewStatus    =>                      rStatus
+          "Do nothing"
+      case _                      => "Do nothing"
     }
   }
   override def toString(): String = {
     val issueString = "Issue title: " + this.title + "\n" +
                       "Issue body: "  + this.body  + "\n"
     var commentString = ""
-    commentList.map(comment => commentString += comment.Body)
-    if (commentString != "") commentString = "Comment body: " + commentString
+    commentList.map(comment => commentString += comment.Body + "\n")
+    if (commentString != "") commentString = "Comment body: \n" + commentString
     issueString + commentString
+  }
+  def describe: String = {
+    ""
   }
 }
 
 sealed trait BuildBotState {
   override def toString() = BuildBotState.mapToString(this)
-
-  def describe =
-    this match {
-      case BuildTestNone          => "no build/test information"
-      case BuildStart             => "build started"
-      case BuildSuccess           => "build successful"
-      case BuildFailure           => "build failed"
-      case TestStart              => "test started"
-      case TestSuccess            => "test successful"
-      case TestFailure            => "test failed"
-      case SameBuildBotState      => "same state"
-      case UnknownBuildBotState   => "unknown state"
-    }
 }
 
 object BuildBotState {
@@ -81,34 +67,28 @@ object BuildBotState {
     BuildFailure           -> "build failed",
     TestStart              -> "test started",
     TestSuccess            -> "test successful",
-    TestFailure            -> "test failed",
-    UnknownBuildBotState   -> "unknown state"
+    TestFailure            -> "test failed"
   )
 
   def apply(s: String): BuildBotState = mapToString.map(_.swap).apply(s)
 }
 
-case object BuildTestNone         extends BuildBotState
+case object BuildNone             extends BuildBotState
 case object BuildStart            extends BuildBotState 
 case object BuildSuccess          extends BuildBotState
 case object BuildFailure          extends BuildBotState
 case object TestStart             extends BuildBotState
 case object TestSuccess           extends BuildBotState
 case object TestFailure           extends BuildBotState
-case object SameBuildBotState     extends BuildBotState
-case object UnknownBuildBotState  extends BuildBotState
 
 sealed trait ReviewStatus {}
 
 object ReviewStatus {}
 
 case object ReviewNone            extends ReviewStatus
-case object ReviewFault           extends ReviewStatus
 case object ReviewOpen            extends ReviewStatus
-case object ReviewWait            extends ReviewStatus
-case object ReviewExpired         extends ReviewStatus
+case object ReviewFault           extends ReviewStatus
 case object ReviewDone            extends ReviewStatus
-case object UnknownReviewStatus   extends ReviewStatus
 
 sealed trait CommentAction {}
 
