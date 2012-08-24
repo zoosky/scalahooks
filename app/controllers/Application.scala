@@ -60,8 +60,9 @@ object Application extends Controller {
     AsyncResult(
       OpenID.verifiedId.extend( _.value match {
         case Redeemed(info) =>
-          Redirect(routes.Application.index()).withSession("id" -> info.id, "email" -> info.attributes("email"))
-//          Ok(info.id + "\n" + info.attributes)
+          //Redirect(routes.Application.index()).withSession("id" -> info.id, "email" -> info.attributes("email"))
+          //Ok(info.id + "\n" + info.attributes)
+          Ok("")
         case Thrown(t) => {
           Redirect(routes.Application.login(t.toString))
         }
@@ -168,14 +169,15 @@ object Application extends Controller {
   
   def updateRepo() = AuthAction { _ =>
     handleTimeout(e => "Timeout while submitting repo refresh task (task might or might not be scheduled)"+ e.toString) {
-      if (submitUpdateTaskAwait()) Redirect(routes.Application.index())
+      if (submitUpdateTaskAwait()) Ok("") //Redirect(routes.Application.index())
       else Conflict(views.html.error("Repository update already in progress."))
     }
   }
 
   def refreshAll() = AuthAction { _ =>
     doRefreshAll()
-    Redirect(routes.Application.index())
+    //Redirect(routes.Application.index())
+    Ok("")
   }
 
   
@@ -399,13 +401,15 @@ object Application extends Controller {
       }
     })
 
-    Redirect(routes.Application.index())
+    //Redirect(routes.Application.index())
+    Ok("")
   }
 
   def initRepo() = AuthAction { _ =>
     val shas = newCommitsSince(Config.oldestImportedCommit).filter(r => (Commit.commit(r).isEmpty))
     val commits = shas.map(sha => GithubTools.revisionInfo(sha))
     Commit.addCommits(commits)
-    Redirect(routes.Application.index())
+    //Redirect(routes.Application.index())
+    Ok("")
   }
 }

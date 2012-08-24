@@ -77,7 +77,18 @@ object GithubAPI {
          "state": "open" (default)
        }
      */
-    val req = url(gitHubUrl+"/issues/")
+    val req = url(gitHubUrl+"/issues")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
+  def getIssue(issueNumber: Long) = {
+    val req = url(gitHubUrl+"/issues/"+issueNumber.toString())
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
         Logger.info("Response: " + response)

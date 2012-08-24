@@ -1,6 +1,7 @@
 package models
 import scala.collection.mutable.LinkedList
 import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.ArrayBuffer
 
 case class MalFormedJSONPayloadException(msg: String) extends RuntimeException {
   override def toString: String = msg
@@ -15,14 +16,19 @@ class Comment (action: CommentAction, id: Long, body: String, createTime: String
   def Action = {action}
 }
 
-class Issue (number: Long, title: String, body: String) {
-  val minInterval = 60
-  val waitInterval = minInterval * 48
-  var rStatus: ReviewStatus = ReviewNone
+class Review(reviewer: String, var rStatus: ReviewStatus) {
+  def getReviewer = reviewer
+  def getRStatus = rStatus
+  def setRStatus(status: ReviewStatus) = {rStatus = status}
+}
+
+class Issue (number: Long, var title: String, var body: String) {
+  private var rStatus: ReviewStatus = ReviewNone
+  private var bState: BuildBotState = BuildNone
   var rCounter: Long = -1
-  var bState: BuildBotState = BuildNone
   var labels = new ListBuffer[String]()
   var commentList = new ListBuffer[Comment]()
+  var reviewList = new ListBuffer[Review]()
   def Number: Long = {number}
   def Title: String = {title}
   def Body: String = {body}
@@ -30,19 +36,8 @@ class Issue (number: Long, title: String, body: String) {
   def updateBState(state: BuildBotState) = {bState = state}
   def getRStatus: ReviewStatus = {rStatus}
   def updateRStatus(status: ReviewStatus) = {rStatus = status}
-  def setRCounter(counter: Long) = {rCounter = counter}
-  def checkRStatus = {
-    rStatus match {
-      case ReviewOpen             => rCounter -= minInterval 
-        if (rCounter < 0) {
-          "Add a warning comment"; 
-          rCounter = waitInterval
-        } 
-        else  
-          "Do nothing"
-      case _                      => "Do nothing"
-    }
-  }
+  def updateTitle(title: String) = {this.title = title}
+  def updateBody(body: String) = {this.body = body}
   override def toString(): String = {
     val issueString = "Issue title: " + this.title + "\n" +
                       "Issue body: "  + this.body  + "\n"
@@ -52,7 +47,13 @@ class Issue (number: Long, title: String, body: String) {
     issueString + commentString
   }
   def describe: String = {
-    ""
+    title + " " + body + " "
+  }
+  def isTested: Boolean = {
+    return labels.contains("tested")
+  }
+  def isReviewed: Boolean = {
+    return labels.contains("reviewed")
   }
 }
 
