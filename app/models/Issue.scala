@@ -7,6 +7,10 @@ case class MalFormedJSONPayloadException(msg: String) extends RuntimeException {
   override def toString: String = msg
 }
 
+case class MissingDefaultLabelsException(msg: String) extends RuntimeException {
+  override def toString: String = msg
+}
+
 class Comment (action: CommentAction, id: Long, body: String, createTime: String, updateTime: String, userLogin: String) {
   def Id: Long = {id}
   def Body: String = {body}
@@ -24,7 +28,8 @@ class Review(reviewer: String, var rStatus: ReviewStatus) {
 
 class Issue (number: Long, var title: String, var body: String) {
   private var rStatus: ReviewStatus = ReviewNone
-  private var bState: BuildBotState = BuildNone
+  private var bState: BuildState = BuildNone
+  private var tState: TestState = TestNone
   var rCounter: Long = -1
   var labels = new ListBuffer[String]()
   var commentList = new ListBuffer[Comment]()
@@ -32,22 +37,25 @@ class Issue (number: Long, var title: String, var body: String) {
   def Number: Long = {number}
   def Title: String = {title}
   def Body: String = {body}
-  def getBState: BuildBotState = {bState}
-  def updateBState(state: BuildBotState) = {bState = state}
+  def getBState: BuildState = {bState}
+  def updateBState(state: BuildState) = {bState = state}
+  def getTState: TestState = {tState}
+  def updateTState(state: TestState) = {tState = state}
   def getRStatus: ReviewStatus = {rStatus}
   def updateRStatus(status: ReviewStatus) = {rStatus = status}
   def updateTitle(title: String) = {this.title = title}
   def updateBody(body: String) = {this.body = body}
   override def toString(): String = {
-    val issueString = "Issue title: " + this.title + "\n" +
-                      "Issue body: "  + this.body  + "\n"
+    val issueString = "Issue number: " + this.number.toString() + "\n" +
+                      "Issue title: "  + this.title             + "\n" +
+                      "Issue body: "   + this.body              + "\n"
     var commentString = ""
     commentList.map(comment => commentString += comment.Body + "\n")
     if (commentString != "") commentString = "Comment body: \n" + commentString
     issueString + commentString
   }
   def describe: String = {
-    title + " " + body + " "
+    "Issue Title: " + title + ", Issue Body: " + body
   }
   def isTested: Boolean = {
     return labels.contains("tested")
@@ -57,30 +65,45 @@ class Issue (number: Long, var title: String, var body: String) {
   }
 }
 
-sealed trait BuildBotState {
-  override def toString() = BuildBotState.mapToString(this)
+sealed trait BuildState {
+  override def toString() = BuildState.mapToString(this)
 }
 
-object BuildBotState {
-  val mapToString: Map[BuildBotState, String] = Map(
+object BuildState {
+  val mapToString: Map[BuildState, String] = Map(
+    BuildNone              -> "build none",
     BuildStart             -> "build started",
     BuildSuccess           -> "build successful",
-    BuildFailure           -> "build failed",
+    BuildFailure           -> "build failed"
+  )
+
+  def apply(s: String): BuildState = mapToString.map(_.swap).apply(s)
+}
+
+case object BuildNone             extends BuildState
+case object BuildStart            extends BuildState 
+case object BuildSuccess          extends BuildState
+case object BuildFailure          extends BuildState
+
+sealed trait TestState {
+  override def toString() = TestState.mapToString(this)
+}
+
+object TestState {
+  val mapToString: Map[TestState, String] = Map(
+    TestNone               -> "test none",
     TestStart              -> "test started",
     TestSuccess            -> "test successful",
     TestFailure            -> "test failed"
   )
 
-  def apply(s: String): BuildBotState = mapToString.map(_.swap).apply(s)
+  def apply(s: String): TestState = mapToString.map(_.swap).apply(s)
 }
 
-case object BuildNone             extends BuildBotState
-case object BuildStart            extends BuildBotState 
-case object BuildSuccess          extends BuildBotState
-case object BuildFailure          extends BuildBotState
-case object TestStart             extends BuildBotState
-case object TestSuccess           extends BuildBotState
-case object TestFailure           extends BuildBotState
+case object TestNone              extends TestState
+case object TestStart             extends TestState
+case object TestSuccess           extends TestState
+case object TestFailure           extends TestState
 
 sealed trait ReviewStatus {}
 

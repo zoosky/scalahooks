@@ -5,6 +5,7 @@ import Application.silentHttp
 import com.codahale.jerkson.Json._
 import play.api.Logger
 import play.api.libs.json.Json
+import org.codehaus.jackson.JsonNode
 
 /**
  * */
@@ -25,7 +26,7 @@ object GithubAPI {
     this.hookUrl = hookUrl
   }
   
-  def setupRepoHooks = {
+  def setupAllRepoHooks = {
     /* 
      * create a generic web hook   
      {
@@ -53,20 +54,8 @@ object GithubAPI {
                              )
     val reqWithData = req << (jsonObject, "application/json")
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "id").asOpt[Long] match {
-            case Some(id) => 
-              Logger.info("A generic web hook established with id = " + id.toString())
-            case None =>
-              Logger.error("No id information?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-          }
-        }
+        Logger.info("Setup web hooks response: " + response)
+      }
     ) 
   }
   
@@ -80,7 +69,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/issues")
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Get all open issues response: " + response)
         response
         // response to be parsed by CoordBot
       }
@@ -91,7 +80,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/issues/"+issueNumber.toString())
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Get issue "+ issueNumber.toString() + " response: " + response)
         response
         // response to be parsed by CoordBot
       }
@@ -105,7 +94,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/issues/"+issueNumber.toString()+"/comments")
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Get comments on issue " + issueNumber.toString() + " response: " + response)
         response
         // response to be parsed by CoordBot
       }
@@ -119,7 +108,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/issues/"+issueNumber.toString()+"/labels")
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Get label on issue " + issueNumber.toString() + " response: " + response)
         response
         // response to be parsed by CoordBot
       }
@@ -133,7 +122,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/labels")
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Get labels response: " + response)
         response
         // response to be parsed by CoordBot
       }
@@ -154,19 +143,7 @@ object GithubAPI {
                              )
     val reqWithData = req << (jsonObject, "application/json")
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "id").asOpt[Long] match {
-            case Some(id) => 
-              Logger.info("An issue comment created with id = " + id.toString())
-            case None =>
-              Logger.error("No id information?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-        }
+        Logger.info("Add comment " + comment + " on issue " + issueNumber.toString() + " response: " + response)
       }
     ) 
   }
@@ -175,7 +152,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/issues/comments/"+id.toString())
     val reqWithData = req
     silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Delete comment " + id.toString() + " response: " + response)
       }
     ) 
   }
@@ -192,7 +169,7 @@ object GithubAPI {
                              )
     val reqWithData = req << (jsonObject, "application/json")
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
+        Logger.info("Add label " + label + " on issue " + issueNumber.toString() + " response: " + response)
       }
     ) 
   }
@@ -201,19 +178,7 @@ object GithubAPI {
     val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/labels/" + label)
     val reqWithData = req
     silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "name").asOpt[String] match {
-            case Some(name) => 
-              Logger.info("Label " + label + " is deleted from issue " + issueNumber.toString())
-            case None =>
-              Logger.error("Label " + label + " does not exist?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-        }
+        Logger.info("Delete label " + label + " on issue " + issueNumber.toString() + " response: " + response)
       }
     ) 
   }
@@ -229,22 +194,74 @@ object GithubAPI {
     val jsonObject = generate(Map("state" -> "closed"))
     val reqWithData = req << (jsonObject, "application/json")
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "number").asOpt[Long] match {
-            case Some(number) => 
-              Logger.info("Issue " + issueNumber + " is closed")
-            case None =>
-              Logger.error("Issue " + issueNumber + " does not exist?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-        }
+        Logger.info("Close issue " + issueNumber.toString() + " response: " + response)
       }
     ) 
   }
   
   def setMileStone() = {}
 }
+
+/**
+ * */
+
+case class GithubAPILabel(url: String, 
+                          name: String, 
+                          color: String)
+                          
+case class GithubAPIUser(login: String, 
+                         id: Long, 
+                         avatar_url: String, 
+                         gravatar_id: String, 
+                         url: String) 
+                         
+case class GithubAPIAssignee(login: String, 
+                             id: Long, 
+                             avatar_url: String, 
+                             gravatar_id: String, 
+                             url: String)
+                             
+case class GithubAPICreator(login: String, 
+                            id: String, 
+                            avatar_url: String, 
+                            gravatar_id: String, 
+                            url: String)
+                            
+case class GithubAPIMilestone(url: String, 
+                              number: Long, 
+                              state: String, 
+                              title: String, 
+                              description: String, 
+                              creator: GithubAPICreator, 
+                              open_issues: Long, 
+                              closed_issues: Long, 
+                              created_at: String, 
+                              due_on: Option[String])
+                              
+case class GithubAPIPullRequest(html_url: String, 
+                                diff_url: String, 
+                                patch_url: String) 
+                                
+case class GithubAPIIssue(url: String, 
+                          html_url: String, 
+                          number: Long, 
+                          state: String, 
+                          title: String, 
+                          body: String, 
+                          user: JsonNode,               // FIXME: why cannot use GithubAPIUser?
+                          labels: List[GithubAPILabel], 
+                          assignee: JsonNode, 
+                          milestone: JsonNode, 
+                          comments: Long, 
+                          pull_request: JsonNode, 
+                          closed_at: JsonNode, 
+                          created_at: String, 
+                          updated_at: String) 
+                          
+case class GithubAPIComment(id: Long,
+                            url: String,
+                            body: String,
+                            user: JsonNode,            // FIXME: why cannot use GithubAPIUser?
+                            created_at: String, 
+                            updated_at: String)
+                            

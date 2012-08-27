@@ -11,16 +11,16 @@
         @* print all open issues *@
         @issue.describe
         @if(issue.isTested) {
-          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/>
+          <h4>Tested <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/> </h4>
         }
-        else {
-          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/>
+        @if(!issue.isTested) {
+          <h4>Not Tested <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/> </h4> 
         }
         @if(issue.isReviewed) {
-          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/>
+          <h4>Reviewed <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/> </h4>
         }
-        else {
-          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/>
+        @if(!issue.isReviewed) {
+          <h4>Not Reviewed <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/> </h4>
         }
       </li>
     }
