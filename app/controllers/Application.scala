@@ -94,9 +94,6 @@ object Application extends Controller {
     else {
       val commits = Commit.commits(page = page)
       handleTimeout(e => "Timeout when reading list of refreshing commits: "+ e.toString) {
-        // setup web hooks
-        Logger.info("Setting up web hooks...")
-        CoordBot.setupGithubHooks
         val refreshing = busyListAwait
         Ok(views.html.index(commits, refreshing, appStateAwait, page, isAuth))
       }

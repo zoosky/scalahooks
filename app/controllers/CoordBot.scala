@@ -36,7 +36,7 @@ object CoordBot extends Controller {
   val gitHubRepo = "scalahooks"
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
-  val hookUrl = "http://requestb.in/"
+  val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   val reviewMsgList = List("Review", "review", "REVIEW")
@@ -65,7 +65,7 @@ object CoordBot extends Controller {
     handleTimeout(e => "Timeout when reading list of open issues "+ e.toString) {
       try {
         // setup web hooks
-        CoordBot.setupGithubHooks
+        setupGithubEnv
         // initialize issue-comment view
         issueMap.clear
         initIssueCommentView
@@ -195,7 +195,7 @@ object CoordBot extends Controller {
     val commentString = GithubAPI.getCommentsOnIssue(issueNumber)
     val comments = com.codahale.jerkson.Json.parse[List[GithubAPIComment]](commentString)
     comments.map { comment =>
-      new Comment(CommentCreated, comment.id, comment.body, comment.created_at, comment.updated_at, comment.user.get("login").toString()) // FIXME: why cannot use comment.user.login?
+      new Comment(CommentCreated, comment.id, comment.body, comment.created_at, comment.updated_at, comment.user.login) 
     } 
   }
   
@@ -421,7 +421,6 @@ object CoordBot extends Controller {
     val issues = com.codahale.jerkson.Json.parse[List[GithubAPIIssue]](issueString)
     for (issue <- issues) {
       var newIssue = new Issue(issue.number, issue.title, issue.body)
-      deleteLabelsOnIssue(issue.number, List("tested", "reviewed")) // clean the labels
       if (issue.comments > 0 && issue.number > 0) {
         Logger.debug("Found comments on issue " + issue.number.toString()) 
         checkIssueCommentView(issue.number) match {
@@ -429,7 +428,12 @@ object CoordBot extends Controller {
             newIssue.updateBState(bstate)
             newIssue.updateTState(tstate)
             newIssue.updateRStatus(rstatus)
-            addLabelsOnIssue(issue.number, labelList)
+            val existedLabelsSet = getLabelsOnIssue(issue.number).toSet
+            val newLabelsSet = labelList.toSet
+            val labelsToAdd = newLabelsSet.diff(existedLabelsSet)
+            val labelsToDelete = existedLabelsSet.diff(Set("tested", "reviewed"))
+            deleteLabelsOnIssue(issue.number, labelsToDelete.toList) 
+            addLabelsOnIssue(issue.number, labelsToAdd.toList)
             newIssue.labels.++=(labelList)
             newIssue.reviewList.++=(reviewList)
             newIssue.commentList.++=(commentList)
@@ -460,18 +464,6 @@ object CoordBot extends Controller {
     }
   }
   
-  def getLabelsOnIssue(issueNumber: Long): List[Label] =  {
-    val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
-    val labels = com.codahale.jerkson.Json.parse[List[String]](labelString)
-      labels.map {label => 
-        val labelJson = Json.parse(label);  
-        (labelJson \ "name").asOpt[String] match {
-          case Some(name) => name
-          case None => throw new MalFormedJSONPayloadException("Missing name field")
-        } 
-      }
-  }
-  
   def missingLabels: List[String] = {
     val missingLabels = for (label <- defaultLabelList; if (!totalLabelList.contains(label)))
       yield label
@@ -492,6 +484,13 @@ object CoordBot extends Controller {
       addLabelOnIssue(issueNumber, label)
   }
   
+  def getLabelsOnIssue(issueNumber: Long): List[Label] = {
+    val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
+    val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
+    val labels = githublabels.map {githublabel => githublabel.name}
+    labels
+  }
+  
   def deleteLabelOnIssue(issueNumber: Long, label: String) = {
     val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
     val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
@@ -504,6 +503,16 @@ object CoordBot extends Controller {
   def deleteLabelsOnIssue(issueNumber: Long, labels: List[String]) = {
     for (label <- labels) 
       deleteLabelOnIssue(issueNumber, label)
+  }
+  
+  def getAllHooks: List[GithubAPIHook] = {
+    val hookString = GithubAPI.getHooks
+    val githubhooks = com.codahale.jerkson.Json.parse[List[GithubAPIHook]](hookString).sortWith((a, b) => a.id < b.id)
+    githubhooks
+  }
+  
+  def deleteAllHooks = {
+    getAllHooks.map {hook => GithubAPI.deleteHook(hook.id)}
   }
   
   def setupEnv = {
@@ -521,8 +530,9 @@ object CoordBot extends Controller {
     }
   }
   
-  def setupGithubHooks = {
+  def setupGithubEnv = {
     setupEnv
+    deleteAllHooks
     GithubAPI.setupAllRepoHooks
   }
 }

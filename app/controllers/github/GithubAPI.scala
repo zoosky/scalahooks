@@ -59,6 +59,24 @@ object GithubAPI {
     ) 
   }
   
+  def getHooks: String = {
+    val req = url(gitHubUrl+"/hooks")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Get all hooks response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
+  def deleteHook(id: Long) = {
+    val req = url(gitHubUrl+"/hooks/"+id.toString())
+    val reqWithData = req
+    dispatch.Http( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >|) 
+    Logger.debug("Hook " + id.toString() + " deleted")
+  }
+  
   def getOpenIssues: String = {
     /* 
      * list issues
@@ -248,7 +266,7 @@ case class GithubAPIIssue(url: String,
                           state: String, 
                           title: String, 
                           body: String, 
-                          user: JsonNode,               // FIXME: why cannot use GithubAPIUser?
+                          user: GithubAPIUser,               
                           labels: List[GithubAPILabel], 
                           assignee: JsonNode, 
                           milestone: JsonNode, 
@@ -261,7 +279,19 @@ case class GithubAPIIssue(url: String,
 case class GithubAPIComment(id: Long,
                             url: String,
                             body: String,
-                            user: JsonNode,            // FIXME: why cannot use GithubAPIUser?
+                            user: GithubAPIUser,            
                             created_at: String, 
                             updated_at: String)
+                        
+case class GithubAPIHookConfig(url: String, content_type: String)
+
+case class GithubAPIHook(url: String,
+                         updated_at: String,
+                         created_at: String,
+                         name: String,
+                         events: List[String],
+                         active: Boolean,
+                         config: JsonNode,
+                         last_response: JsonNode,
+                         id: Long)
                             
