@@ -14,7 +14,8 @@ GET     /loginCallback               controllers.Application.openIDCallback
 GET     /logout                      controllers.Application.logout
 
 # Pages
-GET     /                            controllers.Application.index(p: Int ?= 1)
+#GET     /                            controllers.Application.index(p: Int ?= 1)
+GET     /                            controllers.CoordBot.index()
 GET     /rev/:sha                    controllers.Application.revPage(sha: String)
 GET     /rev/:sha/artifacts/*name    controllers.Application.downloadRedirect(sha: String, name: String)
 # GET     /rev/:sha/artifacts/*name    controllers.Application.download(sha: String, name: String, view: Boolean = false)

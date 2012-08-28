@@ -1,307 +1,277 @@
 package controllers
 
+import java.util.Date
+import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.HashMap
+import scala.collection.mutable.LinkedList
+import scala.collection.mutable.Map
+import org.joda.time.format.ISODateTimeFormat
+import github._
+import models._
+import play.api.libs.json.Json
 import play.api.mvc.Action
 import play.api.mvc.Controller
-import java.util.Date
-import org.joda.time.format.ISODateTimeFormat
-import cc.spray.json._
-import dispatch._
-import Application.silentHttp
-import github._
-import jenkins._
-import models._
-import Config._
 import play.api.Logger
-import play.api.libs.json
-import play.api.libs.json.Json
+import play.api.libs.concurrent.{Redeemed, Thrown}
+import play.api.libs.concurrent.Akka
+import play.api.Play.current
+import scala.collection.mutable.ListBuffer
+import scala.actors.threadpool.TimeoutException
+import play.api.mvc.Result
+import play.api.libs.concurrent.Akka
+import akka.actor.Props
+import akka.util.duration._
 import java.util.Calendar
-import com.codahale.jerkson.Json._
-import scala.collection.mutable._
+import org.codehaus.jackson.JsonNode
+import com.codahale.jerkson.ParsingException
 
 /**
  * */
 
-class Comment (id: Long, body: String, createTime: String, updateTime: String) {
-  def Id: Long = {id}
-  def Body: String = {body}
-  def CreateTime: String = {createTime}
-  def UpdateTime: String = {updateTime}
-}
-
-class Issue (number: Long, title: String, body: String) {
-  val minInterval = 60
-  val waitInterval = minInterval * 48
-  var rStatus: ReviewStatus = ReviewNone
-  var rCounter: Long = -1
-  var bState: BuildBotState = UnknownBuildBotState
-  var commentList = new LinkedList[Comment]()
-  def insertComment(comment: Comment) = {commentList = commentList.:+(comment)}
-  def Number: Long = {number}
-  def Title: String = {title}
-  def Body: String = {body}
-  def getBState: BuildBotState = {bState}
-  def updateBState(state: BuildBotState) = {bState = state}
-  def getRStatus: ReviewStatus = {rStatus}
-  def updateRStatus(status: ReviewStatus) = {rStatus = status}
-  def setRCounter(counter: Long) = {rCounter = counter}
-  def checkRStatus: ReviewStatus = {
-    rStatus match {
-      case ReviewNone => "Do nothing";        rStatus
-      case ReviewOpen => "Wait until tested"; rStatus
-      case ReviewWait => rCounter -= minInterval 
-        if (rCounter < 0) {
-          rStatus = ReviewExpired; rStatus
-        } 
-        else  
-          rStatus
-      case ReviewExpired => rStatus 
-      case ReviewDone => rStatus
-    }
-  }
-  override def toString(): String = {
-    val issueString = "Issue title: " + this.title + "\n" +
-                      "Issue body: "  + this.body  + "\n"
-    var commentString = (commentList.foldLeft(new Comment(-1, "", "", "")) {(x, y) => new Comment(-1, x.Body + "\n" + y.Body, "", "")}).Body
-    if (commentString != "") commentString = "Comment body: " + commentString
-    issueString + commentString
-  }
-}
-
-sealed trait BuildBotState {
-  override def toString() = BuildBotState.mapToString(this)
-
-  def describe =
-    this match {
-      case BuildStart             => "build started"
-      case BuildSuccess           => "build successful"
-      case BuildFailure           => "build failed"
-      case TestStart              => "test started"
-      case TestSuccess            => "test successful"
-      case TestFailure            => "test failed"
-      case SameBuildBotState      => "same state"
-      case UnknownBuildBotState   => "unknown state"
-    }
-}
-
-object BuildBotState {
-  val mapToString: Map[BuildBotState, String] = Map(
-    BuildStart             -> "build started",
-    BuildSuccess           -> "build successful",
-    BuildFailure           -> "build failed",
-    TestStart              -> "test started",
-    TestSuccess            -> "test successful",
-    TestFailure            -> "test failed",
-    UnknownBuildBotState   -> "unknown state"
-  )
-
-  def apply(s: String): BuildBotState = mapToString.map(_.swap).apply(s)
-}
-
-case object BuildStart            extends BuildBotState 
-case object BuildSuccess          extends BuildBotState
-case object BuildFailure          extends BuildBotState
-case object TestStart             extends BuildBotState
-case object TestSuccess           extends BuildBotState
-case object TestFailure           extends BuildBotState
-case object SameBuildBotState     extends BuildBotState
-case object UnknownBuildBotState  extends BuildBotState
-
-sealed trait ReviewStatus {}
-
-object ReviewStatus {}
-
-case object ReviewNone            extends ReviewStatus
-case object ReviewOpen            extends ReviewStatus
-case object ReviewWait            extends ReviewStatus
-case object ReviewExpired         extends ReviewStatus
-case object ReviewDone            extends ReviewStatus
-
 object CoordBot extends Controller {
+  type Label = String; type NewComment = Comment
   
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
-  val hookUrl = "http://requestb.in/106k14o1"
+  val hookUrl = "http://requestb.in/"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
-  val reviewerList = List("@tao", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
-  var specifiedReviewer = new ArrayBuffer[String](1)
+  val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
+  val reviewMsgList = List("Review", "review", "REVIEW")
+  val reviewedMsgList = List("LGTM", "lgtm")
+  val defaultLabelList = List("tested", "reviewed")
+  var specifiedReviewer = new ListBuffer[String]
+  var issueAction, issueTitle, issueBody = "" 
+  var totalLabelList = new ListBuffer[String]()
+               
+  val waitInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
+  val updateFrequency = 5 minutes
+  val initialDelay = 1 minute
+  val enableActor = false
   
-  val dateParser = ISODateTimeFormat.dateTimeNoMillis();
-  def parseISO8601(date: String): Date = {
-    dateParser.parseDateTime(date).toDate()
+  val coordActor = Akka.system.actorOf(Props[CoordActor])
+  if (enableActor) {
+    Akka.system.scheduler.schedule(initialDelay, updateFrequency, coordActor, "refresh")
+    Logger.info("Coordination Actor is activated")
+  }
+    
+  /**
+   * The main page
+   */
+  
+  def index() = Action { implicit request =>
+    handleTimeout(e => "Timeout when reading list of open issues "+ e.toString) {
+      try {
+        // setup web hooks
+        CoordBot.setupGithubHooks
+        // initialize issue-comment view
+        issueMap.clear
+        initIssueCommentView
+      }
+      catch {
+        case e: MalFormedJSONPayloadException =>
+          Logger.error(e.toString())
+        case e: MissingDefaultLabelsException =>
+          Logger.error(e.toString())
+        case e: ParsingException =>
+          Logger.error(e.getMessage())
+        case _ =>
+          Logger.error("Expecting JSON data")
+      }
+      // show open issues
+      val issues = issueMap.values.toList.sortWith((a, b) => a.Number < b.Number)
+      Ok(views.html.index2(issues))
+    }
   }
   
+  /**
+   * Some tools
+   */
+  
+  def handleTimeout(timeoutMsg: TimeoutException => String)(page: => Result) = {
+    try { page }
+    catch {
+      case e: TimeoutException =>
+        RequestTimeout(views.html.error(timeoutMsg(e)))
+    }
+  }
+  
+  /**
+   * The coordination bot methods
+   */
+  
   def receiveGithubMsg = Action { msg =>
-    Logger.info(msg.body.toString())
+    Logger.info("Receive message: " + msg.body.toString())
     msg.body.asFormUrlEncoded.map { urlenc =>
       val urlencPayload = (urlenc.get("payload")) match {
         case Some(jsonStringSeq) => val jsonString = jsonStringSeq.head; 
           Logger.info("Receive JSON payload: " + jsonString)
-          var issueAction, issueTitle, issueBody = "" 
-          var commentBody, commentCreateTime, commentUpdateTime, commentUserLogin = ""
-          var issueNumber, commentId: Long = -1
-          val json = Json.parse(jsonString)
-          // action
-      (json \ "action").asOpt[String].map { action => 
-        issueAction = action
-      }
-      // issue
-      val issue = Json.parse((json \ "issue").toString()) 
-      if (issue != null) {
-        (issue \ "number").asOpt[Long].map {number => 
-          issueNumber = number
-        }
-        (issue \ "title").asOpt[String].map {title => 
-          issueTitle = title
-        }
-        (issue \ "body").asOpt[String].map {body => 
-          issueBody = body
-        }
-      }
-      // issue comment
-      val comment = Json.parse((json \ "comment").toString())
-      if (comment != null) {
-        (comment \ "id").asOpt[Long].map {id => 
-          commentId = id
-        }
-        (comment \ "body").asOpt[String].map {body => 
-          commentBody = body
-        }
-        (comment \ "created_at").asOpt[String].map {time => 
-          commentCreateTime = time
-        }
-        (comment \ "updated_at").asOpt[String].map {time => 
-          commentUpdateTime = time
-        }
-        val user = Json.parse((comment \ "user").toString())
-        if (user != null) {
-          (user \ "login").asOpt[String].map {login =>
-            commentUserLogin = login
-          }  
-        }
-      }
-      if (issue != null) {
-        if (comment == null) {
-          if (issueAction == "opened" || issueAction == "reopened") {
-            Logger.info("An issue is " + issueAction)
-            Logger.info("Issue title: " + issueTitle)
-            Logger.info("Issue body: " + issueBody)
-            issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody)))
+          try {
+            val json = Json.parse(jsonString)
+            var issueNumber: Long = -1
+            var issueAction, issueTitle, issueBody = ""
+            // action
+            (json \ "action").asOpt[String] match {  
+              case Some(action)   => issueAction = action  
+                // issue
+                (json \ "issue").asOpt[String] match {
+                  case Some(issue) => val issueJson = Json.parse(issue)
+                    (issueJson \ "number").asOpt[Long] match { 
+                      case Some(number) => issueNumber = number
+                      case None         => throw new MalFormedJSONPayloadException("Missing issue number")
+                    }
+                    (issueJson \ "title").asOpt[String] match {
+                      case Some(title)  => issueTitle = title
+                      case None         => throw new MalFormedJSONPayloadException("Illegal issue title")
+                    }
+                    (issueJson \ "body").asOpt[String] match { 
+                      case Some(body)   => issueBody = body
+                      case None         => throw new MalFormedJSONPayloadException("Illegal issue body")
+                    }
+                    (json \ "comment").asOpt[String] match {
+                      case Some(comment) => "update issue-comment view"
+                        updateIssueCommentView(issueNumber)
+                      case None => 
+                        if (issueAction == "opened" || issueAction == "reopened") {
+                          Logger.info("An issue is " + issueAction)
+                          Logger.info("Issue title: " + issueTitle)
+                          Logger.info("Issue body: " + issueBody)
+                          issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody)))
+                        }
+                        else if (issueAction == "closed") { // issue closed
+                          issueMap = issueMap.-(issueNumber)
+                        }
+                        else 
+                          throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction) 
+                    }
+                  case None => "Do nothing"
+                }
+              case None     => "Do nothing"
+            }
           }
-          else {
-            issueMap = issueMap.-(issueNumber)
+          catch {
+            case e: MalFormedJSONPayloadException =>
+              Logger.error(e.toString())
+           case e: ParsingException =>
+              Logger.error(e.getMessage())
+            case _ =>
+              Logger.error("Expecting JSON data")
           }
-        }
-        else {
-          Logger.info("An issue comment is " + issueAction + " on issue: " + issueTitle)
-          Logger.info("Comment body: " + commentBody)
-          // check reviewer information
-          if (illegalReviewer(commentBody)) {
-            Logger.error("Illegal reviewers: " + specifiedReviewer.toString())
-            addIllegalReviewerIssueComment(issueNumber, commentUserLogin)
-          }
-          // check build bot state and update issue & comment
-          issueMap.get(issueNumber) match {
-            case Some(issue) => issue.insertComment(new Comment(commentId, commentBody, commentCreateTime, commentUpdateTime))
-              //check build and test successful
-              getBuildBotState(commentBody) match {
-                case BuildStart           => "Do nothing"
-                  Logger.info("Build started")
-                  issue.updateBState(BuildStart)
-                case BuildSuccess         => "Wait for test success"; 
-                  Logger.info("Build successful")
-                  issue.updateBState(BuildSuccess)
-                case BuildFailure         => "Remove label";
-                  Logger.info("Build failed")
-                  removeLabelOnIssue(issueNumber, "tested")
-                  issue.updateBState(BuildFailure)
-                case TestStart            => "Do nothing"
-                  Logger.info("Test started")
-                  issue.updateBState(TestStart)
-                case TestSuccess          => "Check build success"
-                  Logger.info("Test successful")
-                  if (issue.getBState == BuildSuccess) {
-                    Logger.info("Build and test successful!")
-                    Logger.info("Label \"tested\" added to issue " + issueNumber.toString())
-                    addLabelOnIssue(issueNumber, "tested")
-                  }
-                  issue.updateBState(TestSuccess)
-                case TestFailure          => "Remove label"; 
-                  Logger.info("Test failed")
-                  Logger.info("Label \"tested\" removed from issue " + issueNumber.toString())
-                  removeLabelOnIssue(issueNumber, "tested")
-                case SameBuildBotState    => "Do nothing"
-                case UnknownBuildBotState => "Do nothing"
-              }
-            case None => Logger.error("One opened issue missing?")
-              var issue = new Issue(issueNumber, issueTitle, issueBody)
-              issue.insertComment(new Comment(commentId, commentBody, commentCreateTime, commentUpdateTime))
-              issueMap = issueMap.+((issueNumber, issue))
-          }
-          // check review status
-          if (issueReviewed(commentBody)) {
-            Logger.info("Label \"reviewed\" added to issue " + issueNumber.toString())
-            addLabelOnIssue(issueNumber, "reviewed")
-          } 
-        }
-      }
-      printIssueMap
-      //Ok("We are done")
         case None => 
-           //Ok("We are done")
+          BadRequest("Expecting URL-encoded payload")
       }
-       Ok("We are done")
+      Ok("We are done")
     }.getOrElse {
       BadRequest("Expecting URL-encoded data")
     }
   }
   
-  def setupGithubHooks = {
-    /* 
-     * create a generic web hook   
-     {
-       "name": "web",
-       "events": [
-       "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public" 
-       ],
-       "active": true,
-       "config": {
-         "url": "http://something.com/webhook"
-       }
-     }
-     */
-    val req = url(gitHubUrl+"/hooks")
-    val jsonObject = generate(Map(
-                                   "name" -> "web", 
-                                   "events" -> List(
-                                       "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public"
-                                   ), 
-                                   "active" -> true,
-                                   "config" -> Map(
-                                       "url" -> hookUrl
-                                   )
-                                 )
-                             )
-    val reqWithData = req << (jsonObject, "application/json")
-    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "id").asOpt[Long] match {
-            case Some(id) => 
-              Logger.info("A generic web hook established with id = " + id.toString())
-            case None =>
-              Logger.error("No id information?!")
-          }
+  def actorCheckIssueCommentView = {
+    issueMap.keySet.map { key =>
+      issueMap.get(key) match {
+        case Some(issue)  => issue.getRStatus match {
+          case ReviewOpen => "Check counter" 
+            issue.rCounter -= 1 
+            if (issue.rCounter < 0) {
+              var names = ""
+              issue.reviewList.map {review => if (review.getRStatus != ReviewDone) names += review.getReviewer + " "} // get the names of the reviewers
+              val commentString = "Web Bot: still waiting for the reviews " + names
+              GithubAPI.addCommentOnIssue(issue.Number, commentString)
+              Logger.info("Actor sends review expired warning at " + Calendar.getInstance().getTime)
+              issue.rCounter = waitInterval
+            }  
+            else  
+                             "Do nothing"
+          case _          => "Do nothing"
         }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-          }
-        }
-    ) 
+        case None         => "Do nothing"
+      }
+    }
   }
+  
+  def getCommentsOnIssue(issueNumber: Long): List[Comment] = {
+    val commentString = GithubAPI.getCommentsOnIssue(issueNumber)
+    val comments = com.codahale.jerkson.Json.parse[List[GithubAPIComment]](commentString)
+    comments.map { comment =>
+      new Comment(CommentCreated, comment.id, comment.body, comment.created_at, comment.updated_at, comment.user.get("login").toString()) // FIXME: why cannot use comment.user.login?
+    } 
+  }
+  
+  def checkIssueCommentView(issueNumber: Long): (BuildState, TestState, ReviewStatus, List[Label], List[Review], List[Comment], List[NewComment]) = {
+    var labelList = new ListBuffer[String]()
+    var newCommentList = new ListBuffer[NewComment]()
+    var bState: BuildState = BuildNone
+    var tState: TestState = TestNone
+    var rStatus: ReviewStatus = ReviewNone
+    var commentList = new ListBuffer[Comment]() 
+    var reviewList = new ListBuffer[Review]()
+    commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => a.Id < b.Id)) // FIXME: should be sorted by time rather than id
+    commentList.map {comment =>
+       processComment(comment.Body) match {
+         case (bstate, tstate, rstatus) => 
+           // update build state
+           bstate match {
+             case BuildSuccess         => "Check test success";
+               tState match {
+                 case TestSuccess      => "Add the tested label"
+                   labelList.+=("tested")
+                 case _                => "Do nothing"
+               }
+               bState = bstate
+               Logger.debug("Build success")
+             case BuildFailure         => "Remove the tested label";
+               labelList.-=("tested")
+               bState = bstate
+               Logger.debug("Build failure")
+             case _                    => "Do nothing"
+           }
+           // update test state
+           tstate match {
+             case TestSuccess          => "Check build success"
+               bState match {
+                 case BuildSuccess     => "Add the tested label"
+                   labelList.+=("tested")
+                 case _                => "Do nothing"
+               }
+               tState = tstate
+               Logger.debug("Test success")
+             case TestFailure          => "Remove the tested label";
+               labelList.-=("tested")
+               tState = tstate
+               Logger.debug("Test failure")
+             case _                    => "Do nothing"
+           }
+           // update review status
+           rstatus match {
+             case ReviewOpen           => "Remove the reviewed label"
+               labelList.-=("reviewed")
+               reviewList = specifiedReviewer.map {reviewer => new Review(reviewer, ReviewOpen)}
+               rStatus = rstatus
+             case ReviewFault          => "Add illegal reviewer comment"
+               var reviewers = ""
+               specifiedReviewer.filter{reviewer => !reviewerList.contains(reviewer)}.map {reviewer => reviewers += reviewer.drop(1) + " "}
+               val newcomment = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + reviewers
+               newCommentList.+=(new Comment(CommentCreated, -1, newcomment, "", "", ""))
+               rStatus = rstatus
+             case ReviewDone           => "Add the reviewed label"
+               reviewList = reviewList.map {review => if (review.getReviewer == comment.User) {review.setRStatus(ReviewDone); review} else review}
+               if (reviewList.forall {review => review.getRStatus == ReviewDone}) {
+                 // wait until all reviewers add LGTM comments 
+                 labelList.+=("reviewed")
+                 rStatus = rstatus 
+               }
+             case _                    => "Do nothing"
+           }
+       } 
+    } 
+    (bState, tState, rStatus, labelList.toList, reviewList.toList, commentList.toList, newCommentList.toList)
+  } 
+  
+  def processComment(msg: String): (BuildState, TestState, ReviewStatus) = {
+    (getBuildState(msg), getTestState(msg), getReviewStatus(msg))
+  } 
   
   def printIssueMap = {
     for (key <- issueMap.keySet) {
@@ -312,34 +282,60 @@ object CoordBot extends Controller {
     }
   } 
   
-  def illegalReviewer(msg: String): Boolean = {
-    if (msg.contains("@")) {
-      var tokens = new ArrayBuffer[String](1)
-      tokens = tokens.++:(msg.split(" "))
-      specifiedReviewer = tokens.filter(token => token.contains("@"))
-      var str = ""
-      specifiedReviewer.map(r => str += r + " ") 
-      Logger.debug("Specified reviewers: " + str)
+  def getReviewStatus(msg: String): ReviewStatus = {
+    if (coordBotMsg(msg))
+      return ReviewNone
+    if (msg.contains("@") && reviewMsg(msg)) {
+      var tokens = new ListBuffer[String]
+      tokens.++=(msg.split(" "))
+      specifiedReviewer = tokens.filter(token => token.contains("@")) // assume all reviewers are specified in one comment
+      var reviewers = ""
+      specifiedReviewer.map(reviewer => reviewers += reviewer + " ") 
+      Logger.debug("Specified reviewers: " + reviewers)
       for (token <- specifiedReviewer; if !reviewerList.contains(token)) 
-        yield return true
-      false
+        return ReviewFault
+      ReviewOpen
     }
+    else if (reviewedMsg(msg))
+      ReviewDone
     else
-      false
+      ReviewNone
   }
   
-  def issueReviewed(msg: String): Boolean = {
-    val reviewedMsg = "LGTM" // Looks Good To Me
-    if (msg.contains(reviewedMsg))
-      true
-    else
-      false
+  def reviewMsg(msg: String): Boolean = {
+    for (token <- reviewMsgList; if (msg.contains(token)))
+      return true
+    false
   }
   
-  def getBuildBotState(msg: String): BuildBotState = {
+  def reviewedMsg(msg: String): Boolean = {
+    for (token <- reviewedMsgList; if (msg.contains(token)))
+      return true
+    false
+  }
+  
+  def JIRATickets(title: String): Array[String] = {
+    val tokens = title.split(" ")
+    tokens.filter(token => token.contains("SI-"))
+  }
+  
+  def missingJIRALinks(body: String, tickets: Array[String]): Array[String] = {
+    val links = for (ticket <- tickets; if (!body.contains(ticket))) 
+      yield "[" + ticket + "]" + "(https://issues.scala-lang.org/browse/" + ticket + ")"
+    links
+  }
+  
+  def coordBotMsg(msg: String): Boolean = {
+    return msg.contains("Web Bot:")
+  }
+  
+  def getBuildState(msg: String): BuildState = {
+    if (coordBotMsg(msg)) {
+      Logger.debug("Ignore web bot message")
+      return BuildNone
+    }
     val botMsg = "jenkins job"
     val buildMsg = "pr-rangepos"
-    val testMsg = "pr-scala-testsuite-linux-opt"
     val startMsg = "Started"
     val successMsg = "Success"
     if (msg.contains(botMsg)) {
@@ -351,7 +347,24 @@ object CoordBot extends Controller {
         else
           BuildFailure
       }
-      else if (msg.contains(testMsg)) {
+      else
+        BuildNone
+    }
+    else 
+      BuildNone
+  }
+  
+  def getTestState(msg: String): TestState = {
+    if (coordBotMsg(msg)) {
+      Logger.debug("Ignore web bot message")
+      return TestNone
+    }
+    val botMsg = "jenkins job"
+    val testMsg = "pr-scala-testsuite-linux-opt"
+    val startMsg = "Started"
+    val successMsg = "Success"
+    if (msg.contains(botMsg)) {
+      if (msg.contains(testMsg)) {
         if (msg.contains(startMsg))
           TestStart
         else if (msg.contains(successMsg))
@@ -360,115 +373,156 @@ object CoordBot extends Controller {
           TestFailure  
       }
       else
-        UnknownBuildBotState
+        TestNone
     }
     else 
-      SameBuildBotState
+      TestNone
   }
   
-  def addIllegalReviewerIssueComment(issueNumber: Long, user: String) = {
-    /* 
-     * create an issue comment
-       {
-         "body": "msg"
-       }
-     */
-    val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/comments")
-    var str = ""
-    specifiedReviewer.map(_.drop(1)).map(r => str += r + " ")
-    val warningMsg = "Warning: unrecognized reviewers by @" + user + " : " + str
-    val jsonObject = generate(Map(
-                                   "body" -> warningMsg
-                                 )
-                             )
-    val reqWithData = req << (jsonObject, "application/json")
-    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "id").asOpt[Long] match {
-            case Some(id) => 
-              Logger.info("An issue comment created with id = " + id.toString())
-            case None =>
-              Logger.error("No id information?!")
-          }
+  def updateIssueCommentView(issueNumber: Long) = {
+    issueMap.get(issueNumber) match {
+      case Some(issue) => 
+        // update issue view
+        val issueString = GithubAPI.getIssue(issueNumber)
+        val issueJson = Json.parse(issueString)
+        (issueJson \ "number").asOpt[Long] match {
+          case Some(number) => "Do nothing"
+          case None         => throw new MalFormedJSONPayloadException("Missing issue number")
+        }  
+        (issueJson \ "title").asOpt[String] match {
+          case Some(title)  => issue.updateTitle(title)
+          case None         => throw new MalFormedJSONPayloadException("Missing issue title")
+        }  
+        (issueJson \ "body").asOpt[String] match {
+          case Some(body)   => issue.updateBody(body)
+          case None         => throw new MalFormedJSONPayloadException("Missing issue body")
+        }  
+        // update comment view
+        checkIssueCommentView(issueNumber) match {
+          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) => 
+            issue.updateBState(bstate)
+            issue.updateTState(tstate)
+            issue.updateRStatus(rstatus)
+            issue.labels.--=(List("tested", "reviewed"))
+            issue.labels.++=(labelList)
+            issue.reviewList.clear
+            issue.reviewList.++=(reviewList)
+            issue.commentList.clear
+            issue.commentList.++=(commentList)
+            updateCommentsOnIssue(issueNumber, newCommentList)
+            Logger.debug(issue.toString())
         }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-          }
+      case None => "Do nothing"
+    }
+  }
+    
+  def initIssueCommentView = {
+    val issueString = GithubAPI.getOpenIssues
+    val issues = com.codahale.jerkson.Json.parse[List[GithubAPIIssue]](issueString)
+    for (issue <- issues) {
+      var newIssue = new Issue(issue.number, issue.title, issue.body)
+      deleteLabelsOnIssue(issue.number, List("tested", "reviewed")) // clean the labels
+      if (issue.comments > 0 && issue.number > 0) {
+        Logger.debug("Found comments on issue " + issue.number.toString()) 
+        checkIssueCommentView(issue.number) match {
+          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) =>
+            newIssue.updateBState(bstate)
+            newIssue.updateTState(tstate)
+            newIssue.updateRStatus(rstatus)
+            addLabelsOnIssue(issue.number, labelList)
+            newIssue.labels.++=(labelList)
+            newIssue.reviewList.++=(reviewList)
+            newIssue.commentList.++=(commentList)
+            updateCommentsOnIssue(issue.number, newCommentList)
         }
-    ) 
+      }
+      issueMap = issueMap.+((issue.number, newIssue))
+    }
+    printIssueMap
+  } 
+  
+  def updateCommentsOnIssue(issueNumber: Long, comments: List[NewComment]) = {
+    for (comment <- comments) {
+      comment.Action match {
+        case CommentCreated =>
+          GithubAPI.addCommentOnIssue(issueNumber, comment.Body)
+        case CommentDeleted => 
+          GithubAPI.deleteCommentOnIssue(comment.Id)
+      }
+    }
+  }
+  
+  def getLabels = {
+    val labelString = GithubAPI.getLabels
+    val labels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
+    for (label <- labels) {
+      totalLabelList.+=(label.name)
+    }
+  }
+  
+  def getLabelsOnIssue(issueNumber: Long): List[Label] =  {
+    val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
+    val labels = com.codahale.jerkson.Json.parse[List[String]](labelString)
+      labels.map {label => 
+        val labelJson = Json.parse(label);  
+        (labelJson \ "name").asOpt[String] match {
+          case Some(name) => name
+          case None => throw new MalFormedJSONPayloadException("Missing name field")
+        } 
+      }
+  }
+  
+  def missingLabels: List[String] = {
+    val missingLabels = for (label <- defaultLabelList; if (!totalLabelList.contains(label)))
+      yield label
+    missingLabels
   }
   
   def addLabelOnIssue(issueNumber: Long, label: String) = {
-    /* 
-     * create an issue label
-       [
-         "label"
-       ]
-     */
-    val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/labels")
-    val jsonObject = generate(List(label)
-                             )
-    val reqWithData = req << (jsonObject, "application/json")
-    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        }
-    ) 
+    val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
+    val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
+    // in case adding an already existed issue would produce a HTTP error
+    val labels = githublabels.map {githublabel => githublabel.name}
+    if (!labels.contains(label))
+      GithubAPI.addLabelOnIssue(issueNumber, label)
   }
   
-  def removeLabelOnIssue(issueNumber: Long, label: String) = {
-    val req = url(gitHubUrl+"/issues/" + issueNumber.toString() + "/labels/" + label)
-    val reqWithData = req
-    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "name").asOpt[String] match {
-            case Some(name) => 
-              Logger.info("Label " + label + " is deleted from issue " + issueNumber.toString())
-            case None =>
-              Logger.error("Label " + label + " does not exist?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-          }
-        }
-    ) 
+  def addLabelsOnIssue(issueNumber: Long, labels: List[String]) = {
+    for (label <- labels) 
+      addLabelOnIssue(issueNumber, label)
   }
   
-  def closeIssue(issueNumber: Long) = {
-    /* 
-     * close an issue
-       {
-         "state": "closed"
-       }
-     */
-    val req = url(gitHubUrl+"/issues/" + issueNumber.toString())
-    val jsonObject = generate(Map("state" -> "closed"))
-    val reqWithData = req << (jsonObject, "application/json")
-    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Response: " + response)
-        try {
-          (Json.parse(response) \ "number").asOpt[Long] match {
-            case Some(number) => 
-              Logger.info("Issue " + issueNumber + " is closed")
-            case None =>
-              Logger.error("Issue " + issueNumber + " does not exist?!")
-          }
-        }
-        catch {
-          case _ =>
-            Logger.error("Expecting JSON data")
-          }
-        }
-    ) 
+  def deleteLabelOnIssue(issueNumber: Long, label: String) = {
+    val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
+    val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
+    // in case adding an already existed issue would produce a HTTP error
+    val labels = githublabels.map {githublabel => githublabel.name}
+    if (labels.contains(label))
+      GithubAPI.deleteLabelOnIssue(issueNumber, label)
   }
   
-  def setMileStone() = TODO
+  def deleteLabelsOnIssue(issueNumber: Long, labels: List[String]) = {
+    for (label <- labels) 
+      deleteLabelOnIssue(issueNumber, label)
+  }
   
-  def checkJIRAIssue() = TODO
+  def setupEnv = {
+    GithubAPI.initParameters(gitHubUser, gitHubPassword, gitHubRepo, gitHubUrl, hookUrl)
+    Logger.info("Github Webook parameters: " + "\nUser: " + gitHubUser + "\nRepository: " + gitHubRepo + "\nHook url: " + hookUrl)
+    getLabels
+    var labels = ""
+    totalLabelList.map {label => labels += label + " "}
+    Logger.info("Repo labels: " + labels)
+    val missinglabels = missingLabels
+    if (missinglabels.size != 0) {
+      labels = ""
+      missinglabels.map {label => labels += label + " "}
+      throw new MissingDefaultLabelsException("Default label(s) missing: " + labels)
+    }
+  }
   
-  def addCommentToJIRAIssue() = TODO
+  def setupGithubHooks = {
+    setupEnv
+    GithubAPI.setupAllRepoHooks
+  }
 }
