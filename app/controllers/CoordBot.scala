@@ -23,6 +23,7 @@ import akka.actor.Props
 import akka.util.duration._
 import java.util.Calendar
 import org.codehaus.jackson.JsonNode
+import com.codahale.jerkson.ParsingException
 
 /**
  * */
@@ -35,7 +36,7 @@ object CoordBot extends Controller {
   val gitHubRepo = "scalahooks"
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
-  val hookUrl = "http://requestb.in/1imhe4b1"
+  val hookUrl = "http://requestb.in/"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   val reviewMsgList = List("Review", "review", "REVIEW")
@@ -74,6 +75,8 @@ object CoordBot extends Controller {
           Logger.error(e.toString())
         case e: MissingDefaultLabelsException =>
           Logger.error(e.toString())
+        case e: ParsingException =>
+          Logger.error(e.getMessage())
         case _ =>
           Logger.error("Expecting JSON data")
       }
@@ -151,6 +154,8 @@ object CoordBot extends Controller {
           catch {
             case e: MalFormedJSONPayloadException =>
               Logger.error(e.toString())
+           case e: ParsingException =>
+              Logger.error(e.getMessage())
             case _ =>
               Logger.error("Expecting JSON data")
           }
@@ -202,7 +207,7 @@ object CoordBot extends Controller {
     var rStatus: ReviewStatus = ReviewNone
     var commentList = new ListBuffer[Comment]() 
     var reviewList = new ListBuffer[Review]()
-    commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => a.Id < b.Id)) // FIXME: should be sorted by time
+    commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => a.Id < b.Id)) // FIXME: should be sorted by time rather than id
     commentList.map {comment =>
        processComment(comment.Body) match {
          case (bstate, tstate, rstatus) => 
@@ -226,14 +231,14 @@ object CoordBot extends Controller {
            tstate match {
              case TestSuccess          => "Check build success"
                bState match {
-                 case BuildSuccess => "Add the tested label"
+                 case BuildSuccess     => "Add the tested label"
                    labelList.+=("tested")
-                 case _            => "Do nothing"
+                 case _                => "Do nothing"
                }
                tState = tstate
                Logger.debug("Test success")
              case TestFailure          => "Remove the tested label";
-               //labelList = labelList.filter(label => label != "tested")
+               labelList.-=("tested")
                tState = tstate
                Logger.debug("Test failure")
              case _                    => "Do nothing"
@@ -278,7 +283,7 @@ object CoordBot extends Controller {
   } 
   
   def getReviewStatus(msg: String): ReviewStatus = {
-    if (coordBotComment(msg))
+    if (coordBotMsg(msg))
       return ReviewNone
     if (msg.contains("@") && reviewMsg(msg)) {
       var tokens = new ListBuffer[String]
@@ -320,13 +325,15 @@ object CoordBot extends Controller {
     links
   }
   
-  def coordBotComment(msg: String): Boolean = {
+  def coordBotMsg(msg: String): Boolean = {
     return msg.contains("Web Bot:")
   }
   
   def getBuildState(msg: String): BuildState = {
-    if (coordBotComment(msg))
+    if (coordBotMsg(msg)) {
+      Logger.debug("Ignore web bot message")
       return BuildNone
+    }
     val botMsg = "jenkins job"
     val buildMsg = "pr-rangepos"
     val startMsg = "Started"
@@ -348,8 +355,10 @@ object CoordBot extends Controller {
   }
   
   def getTestState(msg: String): TestState = {
-    if (coordBotComment(msg))
+    if (coordBotMsg(msg)) {
+      Logger.debug("Ignore web bot message")
       return TestNone
+    }
     val botMsg = "jenkins job"
     val testMsg = "pr-scala-testsuite-linux-opt"
     val startMsg = "Started"

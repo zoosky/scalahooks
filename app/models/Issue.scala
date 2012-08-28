@@ -55,7 +55,7 @@ class Issue (number: Long, var title: String, var body: String) {
     issueString + commentString
   }
   def describe: String = {
-    "Issue Title: " + title + ", Issue Body: " + body
+    "<< " + title + " >> " + body
   }
   def isTested: Boolean = {
     return labels.contains("tested")
