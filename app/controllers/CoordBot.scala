@@ -177,18 +177,8 @@ object CoordBot extends Controller {
     issueMap.keySet.map { key =>
       issueMap.get(key) match {
         case Some(issue)  => issue.getRStatus match {
-          case ReviewOpen => "Check counter" 
-            issue.rCounter -= 1 
-            if (issue.rCounter < 0) {
-              var names = ""
-              issue.reviewList.map {review => if (review.getRStatus != ReviewDone) names += review.getReviewer + " "} // get the names of the reviewers
-              val commentString = "Web Bot: still waiting for the reviews " + names
-              GithubAPI.addCommentOnIssue(issue.Number, commentString)
-              Logger.info("Actor sends review expired warning at " + Calendar.getInstance().getTime)
-              issue.rCounter = waitInterval
-            }  
-            else  
-                             "Do nothing"
+          case ReviewOpen => "Scan review comments" 
+            
           case _          => "Do nothing"
         }
         case None         => "Do nothing"
@@ -204,9 +194,16 @@ object CoordBot extends Controller {
     } 
   }
   
-  def checkIssueCommentView(issueNumber: Long): (BuildState, TestState, ReviewStatus, List[Label], List[Review], List[Comment], List[NewComment]) = {
+  type BComment = Comment
+  type TComment = Comment
+  type RComment = Comment
+  
+  def checkIssueCommentView(issueNumber: Long): (BuildState, TestState, ReviewStatus, List[Label], List[Review], List[Comment], List[BComment], List[TComment], List[RComment], List[NewComment]) = {
     var labelList = new ListBuffer[String]()
     var newCommentList = new ListBuffer[NewComment]()
+    var buildCommentList = new ListBuffer[Comment]()
+    var testCommentList = new ListBuffer[Comment]()
+    var reviewCommentList = new ListBuffer[Comment]()
     var bState: BuildState = BuildNone
     var tState: TestState = TestNone
     var rStatus: ReviewStatus = ReviewNone
@@ -218,10 +215,10 @@ object CoordBot extends Controller {
          case (bstate, tstate, rstatus) => 
            // get comment type
            getCommentType(bstate, tstate, rstatus) match {
-             case BuildComment  => 
-             case TestComment   =>
-             case ReviewComment =>
-             case NoComment     =>
+             case BuildComment  => buildCommentList.+=(comment)
+             case TestComment   => testCommentList.+=(comment)
+             case ReviewComment => reviewCommentList.+=(comment)
+             case NoComment     => "Do nothing"
            }
            // update build state
            bstate match {
@@ -274,11 +271,29 @@ object CoordBot extends Controller {
                  labelList.+=("reviewed")
                  rStatus = rstatus 
                }
+             case ReviewWarning        => "Check if warning is expired"
+               
              case _                    => "Do nothing"
            }
        } 
     } 
-    (bState, tState, rStatus, labelList.toList, reviewList.toList, commentList.toList, newCommentList.toList)
+    // remove redundant comments
+    rStatus match {
+      case ReviewWarning => "Remove the expired warning"
+        
+      case _             => "Do nothing"
+    }
+    (bState, tState) match {
+      case (BuildSuccess, TestSuccess) => "Remove old build/test messages, only keep the latest build/test messages"
+        buildCommentList.map { comment =>
+          
+        }
+        testCommentList.reverse.map { comment  =>
+          
+        }
+      case _ => "Do nothing"
+    }
+    (bState, tState, rStatus, labelList.toList, reviewList.toList, commentList.toList, buildCommentList.toList, testCommentList.toList, reviewCommentList.toList, newCommentList.toList)
   } 
   
   def processComment(msg: String): (BuildState, TestState, ReviewStatus) = {
@@ -311,8 +326,12 @@ object CoordBot extends Controller {
   } 
   
   def getReviewStatus(msg: String): ReviewStatus = {
-    if (coordBotMsg(msg))
+    if (coordBotMsg(msg)) {
+      val reviewWarning = "unrecognized reviewers"
+      if (msg.contains(reviewWarning))
+        return ReviewWarning
       return ReviewNone
+    }
     if (msg.contains("@") && reviewMsg(msg)) {
       var tokens = new ListBuffer[String]
       tokens.++=(msg.split(" "))
@@ -427,7 +446,7 @@ object CoordBot extends Controller {
         }  
         // update comment view
         checkIssueCommentView(issueNumber) match {
-          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) => 
+          case (bstate, tstate, rstatus, labelList, reviewList, commentList, buildCommentList, testCommentList, reviewCommentList, newCommentList) => 
             issue.updateBState(bstate)
             issue.updateTState(tstate)
             issue.updateRStatus(rstatus)
@@ -437,6 +456,12 @@ object CoordBot extends Controller {
             issue.reviewList.++=(reviewList)
             issue.commentList.clear
             issue.commentList.++=(commentList)
+            issue.buildCommentList.clear
+            issue.buildCommentList.++=(buildCommentList)
+            issue.testCommentList.clear
+            issue.testCommentList.++=(testCommentList)
+            issue.reviewCommentList.clear
+            issue.reviewCommentList.++=(reviewCommentList)
             updateCommentsOnIssue(issueNumber, newCommentList)
             Logger.debug(issue.toString())
         }
@@ -452,7 +477,7 @@ object CoordBot extends Controller {
       if (issue.comments > 0 && issue.number > 0) {
         Logger.debug("Found comments on issue " + issue.number.toString()) 
         checkIssueCommentView(issue.number) match {
-          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) =>
+          case (bstate, tstate, rstatus, labelList, reviewList, commentList, buildCommentList, testCommentList, reviewCommentList, newCommentList) =>
             newIssue.updateBState(bstate)
             newIssue.updateTState(tstate)
             newIssue.updateRStatus(rstatus)
@@ -465,6 +490,9 @@ object CoordBot extends Controller {
             newIssue.labels.++=(labelList)
             newIssue.reviewList.++=(reviewList)
             newIssue.commentList.++=(commentList)
+            newIssue.buildCommentList.++=(buildCommentList)
+            newIssue.testCommentList.++=(testCommentList)
+            newIssue.reviewCommentList.++=(reviewCommentList)
             updateCommentsOnIssue(issue.number, newCommentList)
         }
       }

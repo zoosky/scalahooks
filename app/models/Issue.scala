@@ -31,7 +31,6 @@ class Issue (number: Long, var title: String, var body: String) {
   private var rStatus: ReviewStatus = ReviewNone
   private var bState: BuildState = BuildNone
   private var tState: TestState = TestNone
-  var rCounter: Long = -1
   var labels = new ListBuffer[String]()
   var commentList = new ListBuffer[Comment]()
   var buildCommentList = new ListBuffer[Comment]()
@@ -116,6 +115,7 @@ case object ReviewNone            extends ReviewStatus
 case object ReviewOpen            extends ReviewStatus
 case object ReviewFault           extends ReviewStatus
 case object ReviewDone            extends ReviewStatus
+case object ReviewWarning         extends ReviewStatus
 
 sealed trait CommentAction {}
 object CommentAction {}
