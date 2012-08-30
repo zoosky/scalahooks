@@ -98,6 +98,11 @@ object CoordBot extends Controller {
     }
   }
   
+  val dateParser = ISODateTimeFormat.dateTimeNoMillis();
+  def parseISO8601(date: String): Date = {
+    dateParser.parseDateTime(date).toDate()
+  }
+  
   /**
    * The coordination bot methods
    */
@@ -195,7 +200,7 @@ object CoordBot extends Controller {
     val commentString = GithubAPI.getCommentsOnIssue(issueNumber)
     val comments = com.codahale.jerkson.Json.parse[List[GithubAPIComment]](commentString)
     comments.map { comment =>
-      new Comment(CommentCreated, comment.id, comment.body, comment.created_at, comment.updated_at, comment.user.login) 
+      new Comment(CommentCreated, comment.id, comment.body, parseISO8601(comment.created_at), parseISO8601(comment.updated_at), comment.user.login) 
     } 
   }
   
@@ -207,10 +212,17 @@ object CoordBot extends Controller {
     var rStatus: ReviewStatus = ReviewNone
     var commentList = new ListBuffer[Comment]() 
     var reviewList = new ListBuffer[Review]()
-    commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => a.Id < b.Id)) // FIXME: should be sorted by time rather than id
+    commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => parseISO8601(a.CreateTime).getTime() < parseISO8601(b.CreateTime).getTime())) 
     commentList.map {comment =>
        processComment(comment.Body) match {
          case (bstate, tstate, rstatus) => 
+           // get comment type
+           getCommentType(bstate, tstate, rstatus) match {
+             case BuildComment  => 
+             case TestComment   =>
+             case ReviewComment =>
+             case NoComment     =>
+           }
            // update build state
            bstate match {
              case BuildSuccess         => "Check test success";
@@ -253,7 +265,7 @@ object CoordBot extends Controller {
                var reviewers = ""
                specifiedReviewer.filter{reviewer => !reviewerList.contains(reviewer)}.map {reviewer => reviewers += reviewer.drop(1) + " "}
                val newcomment = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + reviewers
-               newCommentList.+=(new Comment(CommentCreated, -1, newcomment, "", "", ""))
+               newCommentList.+=(new Comment(CommentCreated, -1, newcomment, new Date, new Date, ""))
                rStatus = rstatus
              case ReviewDone           => "Add the reviewed label"
                reviewList = reviewList.map {review => if (review.getReviewer == comment.User) {review.setRStatus(ReviewDone); review} else review}
@@ -272,6 +284,22 @@ object CoordBot extends Controller {
   def processComment(msg: String): (BuildState, TestState, ReviewStatus) = {
     (getBuildState(msg), getTestState(msg), getReviewStatus(msg))
   } 
+  
+  def getCommentType(bState: BuildState, tState: TestState, rStatus: ReviewStatus): CommentType = {
+    bState match {
+      case BuildNone  => "Not build comment"
+      case _          => return BuildComment 
+    }
+    tState match {
+      case TestNone   => "Not test comment"
+      case _          => return TestComment
+    }
+    rStatus match {
+      case ReviewNone => "Not review comment"
+      case _          => return ReviewComment
+    }
+    NoComment
+  }
   
   def printIssueMap = {
     for (key <- issueMap.keySet) {
