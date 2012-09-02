@@ -1,51 +1,29 @@
-@(commits: List[Commit], refreshing: Set[String], state: UpdateState, p: Int, isAuth: Boolean)
+@(issues: List[Issue])
 
 @import helper._
 
-@main("Scala Commits") {
-  <h1>Recent Commits</h1>
-
-  <p>@if(isAuth) {
-    <a href="logout">logout</a>
-  } else {
-    <a href="login">login</a>
-  }</p>
-
-  @if(isAuth) {
-    <p>@if(state == Idle) {
-      @form(routes.Application.updateRepo()) {
-        <input type="submit" value="update repo"/>
-      }
-    } else {
-        updating commits from repo...
-    }</p>
-
-    <p>@form(routes.Application.refreshAll()) {
-      <input type="submit" value="refresh all build states"/>
-    }</p>
-
-    <p>Number of tasks in queue: @{refreshing.size}</p>
-  }
+@main("Scala Issues") {
+  <h1>Recent Open Issues</h1>
 
   <ul>
-    @commits.map { commit =>
+    @issues.map { issue =>
       <li>
-        @* add links: to github, to page with actions for the build, to jenkins page *@
-        @commit.dateString (@commit.githubUser / @commit.authorName),
-        <a href="rev/@commit.sha">@{commit.sha.take(10)}</a>,
-        @commit.state.describe(refreshing(commit.sha))
-        @if(commit.buildSuccess.isDefined && commit.buildSuccess.get) {
-          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/>
+        @* print all open issues *@
+        @issue.describe
+        @if(issue.isTested) {
+          <h4>Tested <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/> </h4>
         }
-        @if(commit.buildSuccess.isDefined && !commit.buildSuccess.get) {
-          <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/>
+        @if(!issue.isTested) {
+          <h4>Not Tested <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/> </h4> 
+        }
+        @if(issue.isReviewed) {
+          <h4>Reviewed <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/blue.png"/> </h4>
+        }
+        @if(!issue.isReviewed) {
+          <h4>Not Reviewed <img src="https://scala-webapps.epfl.ch/jenkins/static/e3c74e88/images/16x16/red.png"/> </h4>
         }
       </li>
     }
   </ul>
 
-  @if(p > 1) {
-    <a href=?p=@{p-1}>newer</a> -
-  }
-  <a href=?p=@{p+1}>older</a>
 }

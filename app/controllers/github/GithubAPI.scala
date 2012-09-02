@@ -1,7 +1,6 @@
 package controllers
 package github
 import dispatch.url
-import Application.silentHttp
 import com.codahale.jerkson.Json._
 import play.api.Logger
 import play.api.libs.json.Json
@@ -18,6 +17,8 @@ object GithubAPI {
   var gitHubUrl = ""
   var hookUrl = ""
     
+  def silentHttp = new dispatch.Http with dispatch.NoLogging
+  
   def initParameters(user: String, password: String, repository: String, gitHubUrl: String, hookUrl: String) = {
     this.gitHubUser = user
     this.gitHubPassword = password
@@ -57,6 +58,24 @@ object GithubAPI {
         Logger.info("Setup web hooks response: " + response)
       }
     ) 
+  }
+  
+  def getHooks: String = {
+    val req = url(gitHubUrl+"/hooks")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Get all hooks response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
+  def deleteHook(id: Long) = {
+    val req = url(gitHubUrl+"/hooks/"+id.toString())
+    val reqWithData = req
+    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >|) 
+    Logger.debug("Hook " + id.toString() + " deleted")
   }
   
   def getOpenIssues: String = {
@@ -151,10 +170,8 @@ object GithubAPI {
   def deleteCommentOnIssue(id: Long) = {
     val req = url(gitHubUrl+"/issues/comments/"+id.toString())
     val reqWithData = req
-    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Delete comment " + id.toString() + " response: " + response)
-      }
-    ) 
+    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >|)
+    Logger.info("Comment " + id.toString() + " deleted")
   }
   
   def addLabelOnIssue(issueNumber: Long, label: String) = {
@@ -199,7 +216,54 @@ object GithubAPI {
     ) 
   }
   
-  def setMileStone() = {}
+  def editIssueBody(issueNumber: Long, body: String) = {
+    /* 
+     * edit an issue body
+       {
+         "body": "body content"
+       }
+     */
+    val req = url(gitHubUrl+"/issues/" + issueNumber.toString())
+    val jsonObject = generate(Map("body" -> body))
+    val reqWithData = req << (jsonObject, "application/json")
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Edit issue " + issueNumber.toString() + " response: " + response)
+      }
+    ) 
+  }
+  
+  def getMilestones: String = {
+    /* 
+     * list issues
+       {
+         "state": "open" (default)
+       }
+     */
+    val req = url(gitHubUrl+"/milestones")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Get all milestones response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
+  def editIssueMilestone(issueNumber: Long, milestoneNumber: Long) = {
+    /* 
+     * edit an issue milestone
+       {
+         "milestone": "milestone number"
+       }
+     */
+    val req = url(gitHubUrl+"/issues/" + issueNumber.toString())
+    val jsonObject = generate(Map("milestone" -> milestoneNumber.toString()))
+    val reqWithData = req << (jsonObject, "application/json")
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Edit issue " + issueNumber.toString() + " response: " + response)
+      }
+    ) 
+  }
 }
 
 /**
@@ -248,7 +312,7 @@ case class GithubAPIIssue(url: String,
                           state: String, 
                           title: String, 
                           body: String, 
-                          user: JsonNode,               // FIXME: why cannot use GithubAPIUser?
+                          user: GithubAPIUser,               
                           labels: List[GithubAPILabel], 
                           assignee: JsonNode, 
                           milestone: JsonNode, 
@@ -261,7 +325,19 @@ case class GithubAPIIssue(url: String,
 case class GithubAPIComment(id: Long,
                             url: String,
                             body: String,
-                            user: JsonNode,            // FIXME: why cannot use GithubAPIUser?
+                            user: GithubAPIUser,            
                             created_at: String, 
                             updated_at: String)
+                        
+case class GithubAPIHookConfig(url: String, content_type: String)
+
+case class GithubAPIHook(url: String,
+                         updated_at: String,
+                         created_at: String,
+                         name: String,
+                         events: List[String],
+                         active: Boolean,
+                         config: JsonNode,
+                         last_response: JsonNode,
+                         id: Long)
                             

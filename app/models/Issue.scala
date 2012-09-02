@@ -2,6 +2,7 @@ package models
 import scala.collection.mutable.LinkedList
 import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.ArrayBuffer
+import java.util.Date
 
 case class MalFormedJSONPayloadException(msg: String) extends RuntimeException {
   override def toString: String = msg
@@ -11,11 +12,13 @@ case class MissingDefaultLabelsException(msg: String) extends RuntimeException {
   override def toString: String = msg
 }
 
-class Comment (action: CommentAction, id: Long, body: String, createTime: String, updateTime: String, userLogin: String) {
+class Comment (action: CommentAction, id: Long, body: String, createTime: Date, updateTime: Date, userLogin: String) {
   def Id: Long = {id}
   def Body: String = {body}
-  def CreateTime: String = {createTime}
-  def UpdateTime: String = {updateTime}
+  def CreateTime: String = {createTime.toString()}
+  def getCreateTime: Long = {createTime.getTime()}
+  def UpdateTime: String = {updateTime.toString()}
+  def getUpdateTime: Long = {updateTime.getTime()}
   def User: String = {userLogin}
   def Action = {action}
 }
@@ -30,7 +33,6 @@ class Issue (number: Long, var title: String, var body: String) {
   private var rStatus: ReviewStatus = ReviewNone
   private var bState: BuildState = BuildNone
   private var tState: TestState = TestNone
-  var rCounter: Long = -1
   var labels = new ListBuffer[String]()
   var commentList = new ListBuffer[Comment]()
   var reviewList = new ListBuffer[Review]()
@@ -106,18 +108,26 @@ case object TestSuccess           extends TestState
 case object TestFailure           extends TestState
 
 sealed trait ReviewStatus {}
-
 object ReviewStatus {}
 
 case object ReviewNone            extends ReviewStatus
 case object ReviewOpen            extends ReviewStatus
 case object ReviewFault           extends ReviewStatus
 case object ReviewDone            extends ReviewStatus
+case object ReviewWarning         extends ReviewStatus
 
 sealed trait CommentAction {}
-
 object CommentAction {}
 
 case object CommentCreated        extends CommentAction
 case object CommentDeleted        extends CommentAction
+
+sealed trait CommentType {}
+object CommentType {}
+
+case object UnknownComment             extends CommentType           
+case object BuildComment          extends CommentType
+case object TestComment           extends CommentType
+case object ReviewComment         extends CommentType
+
 
