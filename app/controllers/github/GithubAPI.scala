@@ -73,7 +73,7 @@ object GithubAPI {
   def deleteHook(id: Long) = {
     val req = url(gitHubUrl+"/hooks/"+id.toString())
     val reqWithData = req
-    dispatch.Http( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >|) 
+    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >|) 
     Logger.debug("Hook " + id.toString() + " deleted")
   }
   
@@ -169,10 +169,8 @@ object GithubAPI {
   def deleteCommentOnIssue(id: Long) = {
     val req = url(gitHubUrl+"/issues/comments/"+id.toString())
     val reqWithData = req
-    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Delete comment " + id.toString() + " response: " + response)
-      }
-    ) 
+    silentHttp( reqWithData.DELETE.as_!(gitHubUser, gitHubPassword) >|)
+    Logger.info("Comment " + id.toString() + " deleted")
   }
   
   def addLabelOnIssue(issueNumber: Long, label: String) = {
@@ -217,7 +215,54 @@ object GithubAPI {
     ) 
   }
   
-  def setMileStone() = {}
+  def editIssueBody(issueNumber: Long, body: String) = {
+    /* 
+     * edit an issue body
+       {
+         "body": "body content"
+       }
+     */
+    val req = url(gitHubUrl+"/issues/" + issueNumber.toString())
+    val jsonObject = generate(Map("body" -> body))
+    val reqWithData = req << (jsonObject, "application/json")
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Edit issue " + issueNumber.toString() + " response: " + response)
+      }
+    ) 
+  }
+  
+  def getMilestones: String = {
+    /* 
+     * list issues
+       {
+         "state": "open" (default)
+       }
+     */
+    val req = url(gitHubUrl+"/milestones")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Get all milestones response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
+  def editIssueMilestone(issueNumber: Long, milestoneNumber: Long) = {
+    /* 
+     * edit an issue milestone
+       {
+         "milestone": "milestone number"
+       }
+     */
+    val req = url(gitHubUrl+"/issues/" + issueNumber.toString())
+    val jsonObject = generate(Map("milestone" -> milestoneNumber.toString()))
+    val reqWithData = req << (jsonObject, "application/json")
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Edit issue " + issueNumber.toString() + " response: " + response)
+      }
+    ) 
+  }
 }
 
 /**
