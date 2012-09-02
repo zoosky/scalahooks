@@ -2,36 +2,8 @@
 # This file defines all application routes (Higher priority routes first)
 # ~~~~
  
-# Sql Script
-
-# GET     /sql                         controllers.Application.sql()
-
-# Login
-
-GET     /login                       controllers.Application.login(message: String ?= "")
-POST    /login                       controllers.Application.loginPost()
-GET     /loginCallback               controllers.Application.openIDCallback
-GET     /logout                      controllers.Application.logout
-
 # Pages
-#GET     /                            controllers.Application.index(p: Int ?= 1)
 GET     /                            controllers.CoordBot.index()
-GET     /rev/:sha                    controllers.Application.revPage(sha: String)
-GET     /rev/:sha/artifacts/*name    controllers.Application.downloadRedirect(sha: String, name: String)
-# GET     /rev/:sha/artifacts/*name    controllers.Application.download(sha: String, name: String, view: Boolean = false)
-# GET     /rev/:sha/viewArtifact/*name controllers.Application.download(sha: String, name: String, view: Boolean = true)
-
-# GET     /test                      controllers.Application.testPage
-
-# Actions
-POST    /update                      controllers.Application.updateRepo()
-POST    /refreshAll                  controllers.Application.refreshAll()
-# GET     /init                        controllers.Application.initRepo()
-
-POST    /rev/:sha/startBuild         controllers.Application.startBuild(sha: String)
-GET     /rev/:sha/startBuild         controllers.Application.startBuild(sha: String)
-POST    /rev/:sha/cancelBuild        controllers.Application.cancelBuild(sha: String)
-POST    /rev/:sha/refresh            controllers.Application.refresh(sha: String)
 
 # Map static resources from the /public folder to the /assets URL path
 GET     /assets/*file                controllers.Assets.at(path="/public", file)

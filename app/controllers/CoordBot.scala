@@ -35,9 +35,9 @@ object CoordBot extends Controller {
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
-  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
+  val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
-  val hookUrl = "http://requestb.in/1imhe4b1"
+  //val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   val reviewMsgList = List("Review", "review", "REVIEW")
@@ -83,7 +83,7 @@ object CoordBot extends Controller {
       }
       // show open issues
       val issues = issueMap.values.toList.sortWith((a, b) => a.Number < b.Number)
-      Ok(views.html.index2(issues))
+      Ok(views.html.index(issues))
     }
   }
 

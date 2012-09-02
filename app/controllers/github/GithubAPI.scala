@@ -1,7 +1,6 @@
 package controllers
 package github
 import dispatch.url
-import Application.silentHttp
 import com.codahale.jerkson.Json._
 import play.api.Logger
 import play.api.libs.json.Json
@@ -18,6 +17,8 @@ object GithubAPI {
   var gitHubUrl = ""
   var hookUrl = ""
     
+  def silentHttp = new dispatch.Http with dispatch.NoLogging
+  
   def initParameters(user: String, password: String, repository: String, gitHubUrl: String, hookUrl: String) = {
     this.gitHubUser = user
     this.gitHubPassword = password
