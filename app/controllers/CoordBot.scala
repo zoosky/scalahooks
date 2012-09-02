@@ -49,8 +49,8 @@ object CoordBot extends Controller {
 
   val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
   val waitDayInterval = 2
-  val updateFrequency = 10 seconds
-  val initialDelay = 10 seconds
+  val updateFrequency = 10 minutes
+  val initialDelay = 1 minutes
   val enableActor = true
 
   val coordActor = Akka.system.actorOf(Props[CoordActor])
@@ -124,47 +124,50 @@ object CoordBot extends Controller {
             val json = Json.parse(jsonString)
             var issueNumber: Long = -1
             var issueAction, issueTitle, issueBody = ""
+            Logger.debug("Processing payload ...")
             // action
             (json \ "action").asOpt[String] match {
               case Some(action) =>
+                Logger.debug("Action = " + action)
                 issueAction = action
                 // issue
-                (json \ "issue").asOpt[String] match {
-                  case Some(issue) =>
-                    val issueJson = Json.parse(issue)
-                    (issueJson \ "number").asOpt[Long] match {
-                      case Some(number) => issueNumber = number
-                      case None => throw new MalFormedJSONPayloadException("Missing issue number")
+                val issueString = (json \ "issue").toString()
+                if (issueString != null) {
+                  val issueJson = Json.parse(issueString)
+                  (issueJson \ "number").asOpt[Long] match {
+                    case Some(number) => issueNumber = number
+                    case None => throw new MalFormedJSONPayloadException("Missing issue number")
+                  }
+                  (issueJson \ "title").asOpt[String] match {
+                    case Some(title) => issueTitle = title
+                    case None => throw new MalFormedJSONPayloadException("Illegal issue title")
+                  }
+                  (issueJson \ "body").asOpt[String] match {
+                    case Some(body) => issueBody = body
+                    case None => throw new MalFormedJSONPayloadException("Illegal issue body")
+                  }
+                }
+                // comment
+                val commentString = (json \ "comment").toString()
+                if (commentString != null) {
+                  "update issue-comment view"
+                  Logger.debug("update view on issue " + issueNumber)
+                  updateIssueCommentView(issueNumber)
+                } else {
+                  if (issueAction == "opened" || issueAction == "reopened") {
+                    Logger.info("An issue is " + issueAction)
+                    Logger.info("Issue title: " + issueTitle)
+                    Logger.info("Issue body: " + issueBody)
+                    var body = ""
+                    if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
+                      Logger.info("Add JIRA links to the body of issue " + issueNumber)
+                      GithubAPI.editIssueBody(issueNumber, issueBody + body)
                     }
-                    (issueJson \ "title").asOpt[String] match {
-                      case Some(title) => issueTitle = title
-                      case None => throw new MalFormedJSONPayloadException("Illegal issue title")
-                    }
-                    (issueJson \ "body").asOpt[String] match {
-                      case Some(body) => issueBody = body
-                      case None => throw new MalFormedJSONPayloadException("Illegal issue body")
-                    }
-                    (json \ "comment").asOpt[String] match {
-                      case Some(comment) =>
-                        "update issue-comment view"
-                        updateIssueCommentView(issueNumber)
-                      case None =>
-                        if (issueAction == "opened" || issueAction == "reopened") {
-                          Logger.info("An issue is " + issueAction)
-                          Logger.info("Issue title: " + issueTitle)
-                          Logger.info("Issue body: " + issueBody)
-                          var body = ""
-                          if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
-                            Logger.info("Add JIRA links to the body of issue " + issueNumber)
-                            GithubAPI.editIssueBody(issueNumber, issueBody + body)
-                          }
-                          issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
-                        } else if (issueAction == "closed") { // issue closed
-                          issueMap = issueMap.-(issueNumber)
-                        } else
-                          throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
-                    }
-                  case None => "Do nothing"
+                    issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
+                  } else if (issueAction == "closed") { // issue closed
+                    issueMap = issueMap.-(issueNumber)
+                  } else
+                    throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
                 }
               case None => "Do nothing"
             }
@@ -315,9 +318,10 @@ object CoordBot extends Controller {
 
     def addComments = {
       rStatus match {
-        case ReviewFault => "add review warning comment"
+        case ReviewFault =>
+          "add review warning comment"
           newCommentList.+=(new Comment(CommentCreated, -1, reviewWarning, null, null, ""))
-        case _           => "Do nothing"
+        case _ => "Do nothing"
       }
     }
 
