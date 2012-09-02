@@ -16,7 +16,9 @@ class Comment (action: CommentAction, id: Long, body: String, createTime: Date, 
   def Id: Long = {id}
   def Body: String = {body}
   def CreateTime: String = {createTime.toString()}
+  def getCreateTime: Long = {createTime.getTime()}
   def UpdateTime: String = {updateTime.toString()}
+  def getUpdateTime: Long = {updateTime.getTime()}
   def User: String = {userLogin}
   def Action = {action}
 }
@@ -33,9 +35,6 @@ class Issue (number: Long, var title: String, var body: String) {
   private var tState: TestState = TestNone
   var labels = new ListBuffer[String]()
   var commentList = new ListBuffer[Comment]()
-  var buildCommentList = new ListBuffer[Comment]()
-  var testCommentList = new ListBuffer[Comment]()
-  var reviewCommentList = new ListBuffer[Comment]()
   var reviewList = new ListBuffer[Review]()
   def Number: Long = {number}
   def Title: String = {title}
@@ -126,7 +125,7 @@ case object CommentDeleted        extends CommentAction
 sealed trait CommentType {}
 object CommentType {}
 
-case object NoComment             extends CommentType           
+case object UnknownComment             extends CommentType           
 case object BuildComment          extends CommentType
 case object TestComment           extends CommentType
 case object ReviewComment         extends CommentType

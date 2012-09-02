@@ -12,7 +12,7 @@ import play.api.libs.json.Json
 import play.api.mvc.Action
 import play.api.mvc.Controller
 import play.api.Logger
-import play.api.libs.concurrent.{Redeemed, Thrown}
+import play.api.libs.concurrent.{ Redeemed, Thrown }
 import play.api.libs.concurrent.Akka
 import play.api.Play.current
 import scala.collection.mutable.ListBuffer
@@ -24,18 +24,19 @@ import akka.util.duration._
 import java.util.Calendar
 import org.codehaus.jackson.JsonNode
 import com.codahale.jerkson.ParsingException
+import math._
 
 /**
- * */
+ */
 
 object CoordBot extends Controller {
   type Label = String; type NewComment = Comment
-  
+
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
-  val gitHubUrl = "https://api.github.com/repos/"+gitHubUser+"/"+gitHubRepo
+  val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
   val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
@@ -43,34 +44,34 @@ object CoordBot extends Controller {
   val reviewedMsgList = List("LGTM", "lgtm")
   val defaultLabelList = List("tested", "reviewed")
   var specifiedReviewer = new ListBuffer[String]
-  var issueAction, issueTitle, issueBody = "" 
+  var issueAction, issueTitle, issueBody = ""
   var totalLabelList = new ListBuffer[String]()
-               
-  val waitInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
+
+  val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
+  val waitDayInterval = 2
   val updateFrequency = 5 minutes
   val initialDelay = 1 minute
   val enableActor = false
-  
+
   val coordActor = Akka.system.actorOf(Props[CoordActor])
   if (enableActor) {
     Akka.system.scheduler.schedule(initialDelay, updateFrequency, coordActor, "refresh")
     Logger.info("Coordination Actor is activated")
   }
-    
+
   /**
    * The main page
    */
-  
+
   def index() = Action { implicit request =>
-    handleTimeout(e => "Timeout when reading list of open issues "+ e.toString) {
+    handleTimeout(e => "Timeout when reading list of open issues " + e.toString) {
       try {
         // setup web hooks
         setupGithubEnv
         // initialize issue-comment view
         issueMap.clear
         initIssueCommentView
-      }
-      catch {
+      } catch {
         case e: MalFormedJSONPayloadException =>
           Logger.error(e.toString())
         case e: MissingDefaultLabelsException =>
@@ -85,11 +86,11 @@ object CoordBot extends Controller {
       Ok(views.html.index2(issues))
     }
   }
-  
+
   /**
    * Some tools
    */
-  
+
   def handleTimeout(timeoutMsg: TimeoutException => String)(page: => Result) = {
     try { page }
     catch {
@@ -97,74 +98,80 @@ object CoordBot extends Controller {
         RequestTimeout(views.html.error(timeoutMsg(e)))
     }
   }
-  
+
   val dateParser = ISODateTimeFormat.dateTimeNoMillis();
   def parseISO8601(date: String): Date = {
     dateParser.parseDateTime(date).toDate()
   }
-  
+
+  def milliSecToSec(milliSec: Long): Long = { milliSec / 1000 }
+  def milliSecToMin(milliSec: Long): Long = { milliSec / (1000 * 60) }
+  def milliSecToHour(milliSec: Long): Long = { milliSec / (1000 * 60 * 60) }
+  def milliSecToDay(milliSec: Long): Long = { milliSec / (1000 * 60 * 60 * 24) }
+
   /**
    * The coordination bot methods
    */
-  
+
   def receiveGithubMsg = Action { msg =>
     Logger.info("Receive message: " + msg.body.toString())
     msg.body.asFormUrlEncoded.map { urlenc =>
       val urlencPayload = (urlenc.get("payload")) match {
-        case Some(jsonStringSeq) => val jsonString = jsonStringSeq.head; 
+        case Some(jsonStringSeq) =>
+          val jsonString = jsonStringSeq.head;
           Logger.info("Receive JSON payload: " + jsonString)
           try {
             val json = Json.parse(jsonString)
             var issueNumber: Long = -1
             var issueAction, issueTitle, issueBody = ""
             // action
-            (json \ "action").asOpt[String] match {  
-              case Some(action)   => issueAction = action  
+            (json \ "action").asOpt[String] match {
+              case Some(action) =>
+                issueAction = action
                 // issue
                 (json \ "issue").asOpt[String] match {
-                  case Some(issue) => val issueJson = Json.parse(issue)
-                    (issueJson \ "number").asOpt[Long] match { 
+                  case Some(issue) =>
+                    val issueJson = Json.parse(issue)
+                    (issueJson \ "number").asOpt[Long] match {
                       case Some(number) => issueNumber = number
-                      case None         => throw new MalFormedJSONPayloadException("Missing issue number")
+                      case None => throw new MalFormedJSONPayloadException("Missing issue number")
                     }
                     (issueJson \ "title").asOpt[String] match {
-                      case Some(title)  => issueTitle = title
-                      case None         => throw new MalFormedJSONPayloadException("Illegal issue title")
+                      case Some(title) => issueTitle = title
+                      case None => throw new MalFormedJSONPayloadException("Illegal issue title")
                     }
-                    (issueJson \ "body").asOpt[String] match { 
-                      case Some(body)   => issueBody = body
-                      case None         => throw new MalFormedJSONPayloadException("Illegal issue body")
+                    (issueJson \ "body").asOpt[String] match {
+                      case Some(body) => issueBody = body
+                      case None => throw new MalFormedJSONPayloadException("Illegal issue body")
                     }
                     (json \ "comment").asOpt[String] match {
-                      case Some(comment) => "update issue-comment view"
+                      case Some(comment) =>
+                        "update issue-comment view"
                         updateIssueCommentView(issueNumber)
-                      case None => 
+                      case None =>
                         if (issueAction == "opened" || issueAction == "reopened") {
                           Logger.info("An issue is " + issueAction)
                           Logger.info("Issue title: " + issueTitle)
                           Logger.info("Issue body: " + issueBody)
                           issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody)))
-                        }
-                        else if (issueAction == "closed") { // issue closed
+                        } else if (issueAction == "closed") { // issue closed
                           issueMap = issueMap.-(issueNumber)
-                        }
-                        else 
-                          throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction) 
+                        } else
+                          throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
                     }
                   case None => "Do nothing"
                 }
-              case None     => "Do nothing"
+              case None => "Do nothing"
             }
-          }
-          catch {
+          } catch {
             case e: MalFormedJSONPayloadException =>
               Logger.error(e.toString())
-           case e: ParsingException =>
+            case e: ParsingException =>
               Logger.error(e.getMessage())
             case _ =>
               Logger.error("Expecting JSON data")
           }
-        case None => 
+        case None =>
           BadRequest("Expecting URL-encoded payload")
       }
       Ok("We are done")
@@ -172,33 +179,29 @@ object CoordBot extends Controller {
       BadRequest("Expecting URL-encoded data")
     }
   }
-  
+
   def actorCheckIssueCommentView = {
     issueMap.keySet.map { key =>
       issueMap.get(key) match {
-        case Some(issue)  => issue.getRStatus match {
-          case ReviewOpen => "Scan review comments" 
-            
-          case _          => "Do nothing"
+        case Some(issue) => issue.getRStatus match {
+          case ReviewOpen => "Scan review comments"
+
+          case _ => "Do nothing"
         }
-        case None         => "Do nothing"
+        case None => "Do nothing"
       }
     }
   }
-  
+
   def getCommentsOnIssue(issueNumber: Long): List[Comment] = {
     val commentString = GithubAPI.getCommentsOnIssue(issueNumber)
     val comments = com.codahale.jerkson.Json.parse[List[GithubAPIComment]](commentString)
     comments.map { comment =>
-      new Comment(CommentCreated, comment.id, comment.body, parseISO8601(comment.created_at), parseISO8601(comment.updated_at), comment.user.login) 
-    } 
+      new Comment(CommentCreated, comment.id, comment.body, parseISO8601(comment.created_at), parseISO8601(comment.updated_at), comment.user.login)
+    }
   }
-  
-  type BComment = Comment
-  type TComment = Comment
-  type RComment = Comment
-  
-  def checkIssueCommentView(issueNumber: Long): (BuildState, TestState, ReviewStatus, List[Label], List[Review], List[Comment], List[BComment], List[TComment], List[RComment], List[NewComment]) = {
+
+  def checkIssueCommentView(issueNumber: Long): (BuildState, TestState, ReviewStatus, List[Label], List[Review], List[Comment], List[NewComment]) = {
     var labelList = new ListBuffer[String]()
     var newCommentList = new ListBuffer[NewComment]()
     var buildCommentList = new ListBuffer[Comment]()
@@ -207,124 +210,163 @@ object CoordBot extends Controller {
     var bState: BuildState = BuildNone
     var tState: TestState = TestNone
     var rStatus: ReviewStatus = ReviewNone
-    var commentList = new ListBuffer[Comment]() 
+    var commentList = new ListBuffer[Comment]()
     var reviewList = new ListBuffer[Review]()
-    commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => parseISO8601(a.CreateTime).getTime() < parseISO8601(b.CreateTime).getTime())) 
-    commentList.map {comment =>
-       processComment(comment.Body) match {
-         case (bstate, tstate, rstatus) => 
-           // get comment type
-           getCommentType(bstate, tstate, rstatus) match {
-             case BuildComment  => buildCommentList.+=(comment)
-             case TestComment   => testCommentList.+=(comment)
-             case ReviewComment => reviewCommentList.+=(comment)
-             case NoComment     => "Do nothing"
-           }
-           // update build state
-           bstate match {
-             case BuildSuccess         => "Check test success";
-               tState match {
-                 case TestSuccess      => "Add the tested label"
-                   labelList.+=("tested")
-                 case _                => "Do nothing"
-               }
-               bState = bstate
-               Logger.debug("Build success")
-             case BuildFailure         => "Remove the tested label";
-               labelList.-=("tested")
-               bState = bstate
-               Logger.debug("Build failure")
-             case _                    => "Do nothing"
-           }
-           // update test state
-           tstate match {
-             case TestSuccess          => "Check build success"
-               bState match {
-                 case BuildSuccess     => "Add the tested label"
-                   labelList.+=("tested")
-                 case _                => "Do nothing"
-               }
-               tState = tstate
-               Logger.debug("Test success")
-             case TestFailure          => "Remove the tested label";
-               labelList.-=("tested")
-               tState = tstate
-               Logger.debug("Test failure")
-             case _                    => "Do nothing"
-           }
-           // update review status
-           rstatus match {
-             case ReviewOpen           => "Remove the reviewed label"
-               labelList.-=("reviewed")
-               reviewList = specifiedReviewer.map {reviewer => new Review(reviewer, ReviewOpen)}
-               rStatus = rstatus
-             case ReviewFault          => "Add illegal reviewer comment"
-               var reviewers = ""
-               specifiedReviewer.filter{reviewer => !reviewerList.contains(reviewer)}.map {reviewer => reviewers += reviewer.drop(1) + " "}
-               val newcomment = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + reviewers
-               newCommentList.+=(new Comment(CommentCreated, -1, newcomment, new Date, new Date, ""))
-               rStatus = rstatus
-             case ReviewDone           => "Add the reviewed label"
-               reviewList = reviewList.map {review => if (review.getReviewer == comment.User) {review.setRStatus(ReviewDone); review} else review}
-               if (reviewList.forall {review => review.getRStatus == ReviewDone}) {
-                 // wait until all reviewers add LGTM comments 
-                 labelList.+=("reviewed")
-                 rStatus = rstatus 
-               }
-             case ReviewWarning        => "Check if warning is expired"
-               
-             case _                    => "Do nothing"
-           }
-       } 
-    } 
-    // remove redundant comments
-    rStatus match {
-      case ReviewWarning => "Remove the expired warning"
-        
-      case _             => "Do nothing"
-    }
-    (bState, tState) match {
-      case (BuildSuccess, TestSuccess) => "Remove old build/test messages, only keep the latest build/test messages"
-        buildCommentList.map { comment =>
-          
+    var rOpenList = new ListBuffer[Comment]()
+    var rWarnList = new ListBuffer[Comment]()
+    var bSuccList = new ListBuffer[Comment]()
+    var tSuccList = new ListBuffer[Comment]()
+
+    def scanComments = {
+      commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => a.getCreateTime < b.getCreateTime))
+      commentList.map { comment =>
+        processComment(comment.Body) match {
+          case (bstate, tstate, rstatus) =>
+            // get comment type
+            getCommentType(bstate, tstate, rstatus) match {
+              case BuildComment => buildCommentList.+=(comment)
+              case TestComment => testCommentList.+=(comment)
+              case ReviewComment => reviewCommentList.+=(comment)
+              case UnknownComment => "Do nothing"
+            }
+            // update build state
+            bstate match {
+              case BuildSuccess =>
+                "Check test success, and save comment id for redundancy check";
+                tState match {
+                  case TestSuccess =>
+                    "Add the tested label"
+                    labelList.+=("tested")
+                  case _ => "Do nothing"
+                }
+                bSuccList.+=(comment)
+                bState = bstate
+                Logger.debug("Build success")
+              case BuildFailure =>
+                "Delete the tested label";
+                labelList.-=("tested")
+                bState = bstate
+                Logger.debug("Build failure")
+              case _ => "Do nothing"
+            }
+            // update test state
+            tstate match {
+              case TestSuccess =>
+                "Check build success, and save comment id for redundancy check"
+                bState match {
+                  case BuildSuccess =>
+                    "Add the tested label"
+                    labelList.+=("tested")
+                  case _ => "Do nothing"
+                }
+                tSuccList.+=(comment)
+                tState = tstate
+                Logger.debug("Test success")
+              case TestFailure =>
+                "Delete the tested label";
+                labelList.-=("tested")
+                tState = tstate
+                Logger.debug("Test failure")
+              case _ => "Do nothing"
+            }
+            // update review status
+            rstatus match {
+              case ReviewOpen =>
+                "Delete the reviewed label, and save comment id for redundancy check"
+                labelList.-=("reviewed")
+                reviewList = specifiedReviewer.map { reviewer => new Review(reviewer, ReviewOpen) }
+                rOpenList.+=(comment)
+                rStatus = rstatus
+              case ReviewFault =>
+                "Add illegal reviewer comment"
+                var reviewers = ""
+                specifiedReviewer.filter { reviewer => !reviewerList.contains(reviewer) }.map { reviewer => reviewers += reviewer.drop(1) + " " }
+                val newcomment = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + reviewers
+                newCommentList.+=(new Comment(CommentCreated, -1, newcomment, null, null, ""))
+                rStatus = rstatus
+              case ReviewDone =>
+                "Add the reviewed label"
+                reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.setRStatus(ReviewDone); review } else review }
+                if (reviewList.forall { review => review.getRStatus == ReviewDone }) {
+                  // wait until all reviewers add LGTM comments 
+                  labelList.+=("reviewed")
+                  rStatus = rstatus
+                }
+              case ReviewWarning =>
+                "Save comment id for redundancy check"
+                rWarnList.+=(comment)
+              case _ => "Do nothing"
+            }
         }
-        testCommentList.reverse.map { comment  =>
-          
-        }
-      case _ => "Do nothing"
+      }
     }
-    (bState, tState, rStatus, labelList.toList, reviewList.toList, commentList.toList, buildCommentList.toList, testCommentList.toList, reviewCommentList.toList, newCommentList.toList)
-  } 
-  
+ 
+    def cleanUpComments = {
+      rStatus match {
+        case ReviewOpen    =>
+          "Delete all previous review comments"
+          val latestOpenReview = rOpenList.maxBy(_.getCreateTime)
+          reviewCommentList.filter { _.Id != latestOpenReview.Id }.map { comment =>
+            newCommentList.+=(new Comment(CommentDeleted, comment.Id, "", null, null, ""))
+          }
+        case ReviewWarning =>
+          "Delete the expired warning"
+          rWarnList.map { comment =>
+            newCommentList.+=(new Comment(CommentDeleted, comment.Id, "", null, null, ""))
+          }
+        case _             => "Do nothing"
+      }
+      (bState, tState) match {
+        case (BuildSuccess, TestSuccess) =>
+          "Delete old build/test messages, only keep the latest build/test messages"
+          val latestBuildSucc = bSuccList.maxBy(_.getCreateTime)
+          buildCommentList.filter { _.Id != latestBuildSucc.Id }.map { comment =>
+            newCommentList.+=(new Comment(CommentDeleted, comment.Id, "", null, null, ""))
+          }
+          val latestTestSucc = tSuccList.maxBy(_.getCreateTime)
+          testCommentList.reverse.map { comment =>
+            newCommentList.+=(new Comment(CommentDeleted, comment.Id, "", null, null, ""))
+          }
+        case _                           => "Do nothing"
+      }
+    }
+    
+    // scan all comments
+    scanComments
+    // delete redundant comments
+    cleanUpComments
+    (bState, tState, rStatus, labelList.toList, reviewList.toList, commentList.toList, newCommentList.toList)
+  }
+
   def processComment(msg: String): (BuildState, TestState, ReviewStatus) = {
     (getBuildState(msg), getTestState(msg), getReviewStatus(msg))
-  } 
-  
+  }
+
   def getCommentType(bState: BuildState, tState: TestState, rStatus: ReviewStatus): CommentType = {
     bState match {
-      case BuildNone  => "Not build comment"
-      case _          => return BuildComment 
+      case BuildNone => "Not build comment"
+      case _ => return BuildComment
     }
     tState match {
-      case TestNone   => "Not test comment"
-      case _          => return TestComment
+      case TestNone => "Not test comment"
+      case _ => return TestComment
     }
     rStatus match {
       case ReviewNone => "Not review comment"
-      case _          => return ReviewComment
+      case _ => return ReviewComment
     }
-    NoComment
+    UnknownComment
   }
-  
+
   def printIssueMap = {
     for (key <- issueMap.keySet) {
       issueMap.get(key) match {
-        case Some(issue) => Logger.debug(issue.toString()) 
+        case Some(issue) => Logger.debug(issue.toString())
         case None => "Do nothing"
       }
     }
-  } 
-  
+  }
+
   def getReviewStatus(msg: String): ReviewStatus = {
     if (coordBotMsg(msg)) {
       val reviewWarning = "unrecognized reviewers"
@@ -337,45 +379,44 @@ object CoordBot extends Controller {
       tokens.++=(msg.split(" "))
       specifiedReviewer = tokens.filter(token => token.contains("@")) // assume all reviewers are specified in one comment
       var reviewers = ""
-      specifiedReviewer.map(reviewer => reviewers += reviewer + " ") 
+      specifiedReviewer.map(reviewer => reviewers += reviewer + " ")
       Logger.debug("Specified reviewers: " + reviewers)
-      for (token <- specifiedReviewer; if !reviewerList.contains(token)) 
+      for (token <- specifiedReviewer; if !reviewerList.contains(token))
         return ReviewFault
       ReviewOpen
-    }
-    else if (reviewedMsg(msg))
+    } else if (reviewedMsg(msg))
       ReviewDone
     else
       ReviewNone
   }
-  
+
   def reviewMsg(msg: String): Boolean = {
     for (token <- reviewMsgList; if (msg.contains(token)))
       return true
     false
   }
-  
+
   def reviewedMsg(msg: String): Boolean = {
     for (token <- reviewedMsgList; if (msg.contains(token)))
       return true
     false
   }
-  
+
   def JIRATickets(title: String): Array[String] = {
     val tokens = title.split(" ")
     tokens.filter(token => token.contains("SI-"))
   }
-  
+
   def missingJIRALinks(body: String, tickets: Array[String]): Array[String] = {
-    val links = for (ticket <- tickets; if (!body.contains(ticket))) 
+    val links = for (ticket <- tickets; if (!body.contains(ticket)))
       yield "[" + ticket + "]" + "(https://issues.scala-lang.org/browse/" + ticket + ")"
     links
   }
-  
+
   def coordBotMsg(msg: String): Boolean = {
     return msg.contains("Web Bot:")
   }
-  
+
   def getBuildState(msg: String): BuildState = {
     if (coordBotMsg(msg)) {
       Logger.debug("Ignore web bot message")
@@ -393,14 +434,12 @@ object CoordBot extends Controller {
           BuildSuccess
         else
           BuildFailure
-      }
-      else
+      } else
         BuildNone
-    }
-    else 
+    } else
       BuildNone
   }
-  
+
   def getTestState(msg: String): TestState = {
     if (coordBotMsg(msg)) {
       Logger.debug("Ignore web bot message")
@@ -417,36 +456,34 @@ object CoordBot extends Controller {
         else if (msg.contains(successMsg))
           TestSuccess
         else
-          TestFailure  
-      }
-      else
+          TestFailure
+      } else
         TestNone
-    }
-    else 
+    } else
       TestNone
   }
-  
+
   def updateIssueCommentView(issueNumber: Long) = {
     issueMap.get(issueNumber) match {
-      case Some(issue) => 
+      case Some(issue) =>
         // update issue view
         val issueString = GithubAPI.getIssue(issueNumber)
         val issueJson = Json.parse(issueString)
         (issueJson \ "number").asOpt[Long] match {
           case Some(number) => "Do nothing"
-          case None         => throw new MalFormedJSONPayloadException("Missing issue number")
-        }  
+          case None => throw new MalFormedJSONPayloadException("Missing issue number")
+        }
         (issueJson \ "title").asOpt[String] match {
-          case Some(title)  => issue.updateTitle(title)
-          case None         => throw new MalFormedJSONPayloadException("Missing issue title")
-        }  
+          case Some(title) => issue.updateTitle(title)
+          case None => throw new MalFormedJSONPayloadException("Missing issue title")
+        }
         (issueJson \ "body").asOpt[String] match {
-          case Some(body)   => issue.updateBody(body)
-          case None         => throw new MalFormedJSONPayloadException("Missing issue body")
-        }  
+          case Some(body) => issue.updateBody(body)
+          case None => throw new MalFormedJSONPayloadException("Missing issue body")
+        }
         // update comment view
         checkIssueCommentView(issueNumber) match {
-          case (bstate, tstate, rstatus, labelList, reviewList, commentList, buildCommentList, testCommentList, reviewCommentList, newCommentList) => 
+          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) =>
             issue.updateBState(bstate)
             issue.updateTState(tstate)
             issue.updateRStatus(rstatus)
@@ -456,28 +493,22 @@ object CoordBot extends Controller {
             issue.reviewList.++=(reviewList)
             issue.commentList.clear
             issue.commentList.++=(commentList)
-            issue.buildCommentList.clear
-            issue.buildCommentList.++=(buildCommentList)
-            issue.testCommentList.clear
-            issue.testCommentList.++=(testCommentList)
-            issue.reviewCommentList.clear
-            issue.reviewCommentList.++=(reviewCommentList)
             updateCommentsOnIssue(issueNumber, newCommentList)
             Logger.debug(issue.toString())
         }
       case None => "Do nothing"
     }
   }
-    
+
   def initIssueCommentView = {
     val issueString = GithubAPI.getOpenIssues
     val issues = com.codahale.jerkson.Json.parse[List[GithubAPIIssue]](issueString)
     for (issue <- issues) {
       var newIssue = new Issue(issue.number, issue.title, issue.body)
       if (issue.comments > 0 && issue.number > 0) {
-        Logger.debug("Found comments on issue " + issue.number.toString()) 
+        Logger.debug("Found comments on issue " + issue.number.toString())
         checkIssueCommentView(issue.number) match {
-          case (bstate, tstate, rstatus, labelList, reviewList, commentList, buildCommentList, testCommentList, reviewCommentList, newCommentList) =>
+          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) =>
             newIssue.updateBState(bstate)
             newIssue.updateTState(tstate)
             newIssue.updateRStatus(rstatus)
@@ -485,33 +516,30 @@ object CoordBot extends Controller {
             val newLabelsSet = labelList.toSet
             val labelsToAdd = newLabelsSet.diff(existedLabelsSet)
             val labelsToDelete = existedLabelsSet.diff(Set("tested", "reviewed"))
-            deleteLabelsOnIssue(issue.number, labelsToDelete.toList) 
+            deleteLabelsOnIssue(issue.number, labelsToDelete.toList)
             addLabelsOnIssue(issue.number, labelsToAdd.toList)
             newIssue.labels.++=(labelList)
             newIssue.reviewList.++=(reviewList)
             newIssue.commentList.++=(commentList)
-            newIssue.buildCommentList.++=(buildCommentList)
-            newIssue.testCommentList.++=(testCommentList)
-            newIssue.reviewCommentList.++=(reviewCommentList)
             updateCommentsOnIssue(issue.number, newCommentList)
         }
       }
       issueMap = issueMap.+((issue.number, newIssue))
     }
     printIssueMap
-  } 
-  
+  }
+
   def updateCommentsOnIssue(issueNumber: Long, comments: List[NewComment]) = {
     for (comment <- comments) {
       comment.Action match {
         case CommentCreated =>
           GithubAPI.addCommentOnIssue(issueNumber, comment.Body)
-        case CommentDeleted => 
+        case CommentDeleted =>
           GithubAPI.deleteCommentOnIssue(comment.Id)
       }
     }
   }
-  
+
   def getLabels = {
     val labelString = GithubAPI.getLabels
     val labels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
@@ -519,73 +547,73 @@ object CoordBot extends Controller {
       totalLabelList.+=(label.name)
     }
   }
-  
+
   def missingLabels: List[String] = {
     val missingLabels = for (label <- defaultLabelList; if (!totalLabelList.contains(label)))
       yield label
     missingLabels
   }
-  
+
   def addLabelOnIssue(issueNumber: Long, label: String) = {
     val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
     val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
     // in case adding an already existed issue would produce a HTTP error
-    val labels = githublabels.map {githublabel => githublabel.name}
+    val labels = githublabels.map { githublabel => githublabel.name }
     if (!labels.contains(label))
       GithubAPI.addLabelOnIssue(issueNumber, label)
   }
-  
+
   def addLabelsOnIssue(issueNumber: Long, labels: List[String]) = {
-    for (label <- labels) 
+    for (label <- labels)
       addLabelOnIssue(issueNumber, label)
   }
-  
+
   def getLabelsOnIssue(issueNumber: Long): List[Label] = {
     val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
     val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
-    val labels = githublabels.map {githublabel => githublabel.name}
+    val labels = githublabels.map { githublabel => githublabel.name }
     labels
   }
-  
+
   def deleteLabelOnIssue(issueNumber: Long, label: String) = {
     val labelString = GithubAPI.getLabelsOnIssue(issueNumber)
     val githublabels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
     // in case adding an already existed issue would produce a HTTP error
-    val labels = githublabels.map {githublabel => githublabel.name}
+    val labels = githublabels.map { githublabel => githublabel.name }
     if (labels.contains(label))
       GithubAPI.deleteLabelOnIssue(issueNumber, label)
   }
-  
+
   def deleteLabelsOnIssue(issueNumber: Long, labels: List[String]) = {
-    for (label <- labels) 
+    for (label <- labels)
       deleteLabelOnIssue(issueNumber, label)
   }
-  
+
   def getAllHooks: List[GithubAPIHook] = {
     val hookString = GithubAPI.getHooks
     val githubhooks = com.codahale.jerkson.Json.parse[List[GithubAPIHook]](hookString).sortWith((a, b) => a.id < b.id)
     githubhooks
   }
-  
+
   def deleteAllHooks = {
-    getAllHooks.map {hook => GithubAPI.deleteHook(hook.id)}
+    getAllHooks.map { hook => GithubAPI.deleteHook(hook.id) }
   }
-  
+
   def setupEnv = {
     GithubAPI.initParameters(gitHubUser, gitHubPassword, gitHubRepo, gitHubUrl, hookUrl)
     Logger.info("Github Webook parameters: " + "\nUser: " + gitHubUser + "\nRepository: " + gitHubRepo + "\nHook url: " + hookUrl)
     getLabels
     var labels = ""
-    totalLabelList.map {label => labels += label + " "}
+    totalLabelList.map { label => labels += label + " " }
     Logger.info("Repo labels: " + labels)
     val missinglabels = missingLabels
     if (missinglabels.size != 0) {
       labels = ""
-      missinglabels.map {label => labels += label + " "}
+      missinglabels.map { label => labels += label + " " }
       throw new MissingDefaultLabelsException("Default label(s) missing: " + labels)
     }
   }
-  
+
   def setupGithubEnv = {
     setupEnv
     deleteAllHooks
