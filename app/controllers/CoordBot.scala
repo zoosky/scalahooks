@@ -35,9 +35,9 @@ object CoordBot extends Controller {
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
-  val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
+  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
-  //val hookUrl = "http://requestb.in/1imhe4b1"
+  val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   val reviewMsgList = List("Review", "review", "REVIEW")
@@ -146,6 +146,7 @@ object CoordBot extends Controller {
                     case Some(body) => issueBody = body
                     case None => throw new MalFormedJSONPayloadException("Illegal issue body")
                   }
+<<<<<<< HEAD
                 }
                 // comment
                 val commentString = (json \ "comment").toString()
@@ -168,6 +169,28 @@ object CoordBot extends Controller {
                     issueMap = issueMap.-(issueNumber)
                   } else
                     throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
+=======
+                  val commentString = (json \ "comment").toString()
+                  if (commentString != null) {
+                    "update issue-comment view"
+                    updateIssueCommentView(issueNumber)
+                  } else {
+                    if (issueAction == "opened" || issueAction == "reopened") {
+                      Logger.info("An issue is " + issueAction)
+                      Logger.info("Issue title: " + issueTitle)
+                      Logger.info("Issue body: " + issueBody)
+                      var body = ""
+                      if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
+                        Logger.info("Add JIRA links to the body of issue " + issueNumber)
+                        GithubAPI.editIssueBody(issueNumber, issueBody + body)
+                      }
+                      issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
+                    } else if (issueAction == "closed") { // issue closed
+                      issueMap = issueMap.-(issueNumber)
+                    } else
+                      throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
+                  }
+>>>>>>> master
                 }
               case None => "Do nothing"
             }
@@ -515,6 +538,7 @@ object CoordBot extends Controller {
             issue.updateRStatus(rstatus)
             issue.labels.--=(List("tested", "reviewed"))
             issue.labels.++=(labelList)
+            updateLabelsOnIssue(issueNumber, labelList)
             issue.reviewList.clear
             issue.reviewList.++=(reviewList)
             issue.commentList.clear
@@ -543,12 +567,7 @@ object CoordBot extends Controller {
             newIssue.updateBState(bstate)
             newIssue.updateTState(tstate)
             newIssue.updateRStatus(rstatus)
-            val existedLabelsSet = getLabelsOnIssue(issue.number).toSet
-            val newLabelsSet = labelList.toSet
-            val labelsToAdd = newLabelsSet.diff(existedLabelsSet)
-            val labelsToDelete = existedLabelsSet.diff(newLabelsSet)
-            deleteLabelsOnIssue(issue.number, labelsToDelete.toList)
-            addLabelsOnIssue(issue.number, labelsToAdd.toList)
+            updateLabelsOnIssue(issue.number, labelList)
             newIssue.labels.++=(labelList)
             newIssue.reviewList.++=(reviewList)
             newIssue.commentList.++=(commentList)
@@ -558,6 +577,15 @@ object CoordBot extends Controller {
       issueMap = issueMap.+((issue.number, newIssue))
     }
     printIssueMap
+  }
+
+  def updateLabelsOnIssue(issueNumber: Long, labelList: List[Label]) = {
+    val existedLabelsSet = getLabelsOnIssue(issueNumber).toSet
+    val newLabelsSet = labelList.toSet
+    val labelsToAdd = newLabelsSet.diff(existedLabelsSet)
+    val labelsToDelete = existedLabelsSet.diff(newLabelsSet)
+    deleteLabelsOnIssue(issueNumber, labelsToDelete.toList)
+    addLabelsOnIssue(issueNumber, labelsToAdd.toList)
   }
 
   def updateCommentsOnIssue(issueNumber: Long, comments: List[NewComment]) = {
