@@ -35,9 +35,9 @@ object CoordBot extends Controller {
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
-  val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
+  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
-  //val hookUrl = "http://requestb.in/1imhe4b1"
+  val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
   val reviewMsgList = List("Review", "review", "REVIEW")
@@ -49,8 +49,8 @@ object CoordBot extends Controller {
 
   val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
   val waitDayInterval = 2
-  val updateFrequency = 10 seconds
-  val initialDelay = 10 seconds
+  val updateFrequency = 10 minutes
+  val initialDelay = 1 minutes
   val enableActor = true
 
   val coordActor = Akka.system.actorOf(Props[CoordActor])
@@ -129,42 +129,41 @@ object CoordBot extends Controller {
               case Some(action) =>
                 issueAction = action
                 // issue
-                (json \ "issue").asOpt[String] match {
-                  case Some(issue) =>
-                    val issueJson = Json.parse(issue)
-                    (issueJson \ "number").asOpt[Long] match {
-                      case Some(number) => issueNumber = number
-                      case None => throw new MalFormedJSONPayloadException("Missing issue number")
-                    }
-                    (issueJson \ "title").asOpt[String] match {
-                      case Some(title) => issueTitle = title
-                      case None => throw new MalFormedJSONPayloadException("Illegal issue title")
-                    }
-                    (issueJson \ "body").asOpt[String] match {
-                      case Some(body) => issueBody = body
-                      case None => throw new MalFormedJSONPayloadException("Illegal issue body")
-                    }
-                    (json \ "comment").asOpt[String] match {
-                      case Some(comment) =>
-                        "update issue-comment view"
-                        updateIssueCommentView(issueNumber)
-                      case None =>
-                        if (issueAction == "opened" || issueAction == "reopened") {
-                          Logger.info("An issue is " + issueAction)
-                          Logger.info("Issue title: " + issueTitle)
-                          Logger.info("Issue body: " + issueBody)
-                          var body = ""
-                          if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
-                            Logger.info("Add JIRA links to the body of issue " + issueNumber)
-                            GithubAPI.editIssueBody(issueNumber, issueBody + body)
-                          }
-                          issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
-                        } else if (issueAction == "closed") { // issue closed
-                          issueMap = issueMap.-(issueNumber)
-                        } else
-                          throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
-                    }
-                  case None => "Do nothing"
+                val issueString = (json \ "issue").toString()
+                if (issueString != null) {
+                  val issueJson = Json.parse(issueString)
+                  (issueJson \ "number").asOpt[Long] match {
+                    case Some(number) => issueNumber = number
+                    case None => throw new MalFormedJSONPayloadException("Missing issue number")
+                  }
+                  (issueJson \ "title").asOpt[String] match {
+                    case Some(title) => issueTitle = title
+                    case None => throw new MalFormedJSONPayloadException("Illegal issue title")
+                  }
+                  (issueJson \ "body").asOpt[String] match {
+                    case Some(body) => issueBody = body
+                    case None => throw new MalFormedJSONPayloadException("Illegal issue body")
+                  }
+                  val commentString = (json \ "comment").toString()
+                  if (commentString != null) {
+                    "update issue-comment view"
+                    updateIssueCommentView(issueNumber)
+                  } else {
+                    if (issueAction == "opened" || issueAction == "reopened") {
+                      Logger.info("An issue is " + issueAction)
+                      Logger.info("Issue title: " + issueTitle)
+                      Logger.info("Issue body: " + issueBody)
+                      var body = ""
+                      if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
+                        Logger.info("Add JIRA links to the body of issue " + issueNumber)
+                        GithubAPI.editIssueBody(issueNumber, issueBody + body)
+                      }
+                      issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
+                    } else if (issueAction == "closed") { // issue closed
+                      issueMap = issueMap.-(issueNumber)
+                    } else
+                      throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
+                  }
                 }
               case None => "Do nothing"
             }
@@ -315,9 +314,10 @@ object CoordBot extends Controller {
 
     def addComments = {
       rStatus match {
-        case ReviewFault => "add review warning comment"
+        case ReviewFault =>
+          "add review warning comment"
           newCommentList.+=(new Comment(CommentCreated, -1, reviewWarning, null, null, ""))
-        case _           => "Do nothing"
+        case _ => "Do nothing"
       }
     }
 
@@ -511,6 +511,7 @@ object CoordBot extends Controller {
             issue.updateRStatus(rstatus)
             issue.labels.--=(List("tested", "reviewed"))
             issue.labels.++=(labelList)
+            updateLabelsOnIssue(issueNumber, labelList)
             issue.reviewList.clear
             issue.reviewList.++=(reviewList)
             issue.commentList.clear
@@ -539,12 +540,7 @@ object CoordBot extends Controller {
             newIssue.updateBState(bstate)
             newIssue.updateTState(tstate)
             newIssue.updateRStatus(rstatus)
-            val existedLabelsSet = getLabelsOnIssue(issue.number).toSet
-            val newLabelsSet = labelList.toSet
-            val labelsToAdd = newLabelsSet.diff(existedLabelsSet)
-            val labelsToDelete = existedLabelsSet.diff(newLabelsSet)
-            deleteLabelsOnIssue(issue.number, labelsToDelete.toList)
-            addLabelsOnIssue(issue.number, labelsToAdd.toList)
+            updateLabelsOnIssue(issue.number, labelList)
             newIssue.labels.++=(labelList)
             newIssue.reviewList.++=(reviewList)
             newIssue.commentList.++=(commentList)
@@ -554,6 +550,15 @@ object CoordBot extends Controller {
       issueMap = issueMap.+((issue.number, newIssue))
     }
     printIssueMap
+  }
+
+  def updateLabelsOnIssue(issueNumber: Long, labelList: List[Label]) = {
+    val existedLabelsSet = getLabelsOnIssue(issueNumber).toSet
+    val newLabelsSet = labelList.toSet
+    val labelsToAdd = newLabelsSet.diff(existedLabelsSet)
+    val labelsToDelete = existedLabelsSet.diff(newLabelsSet)
+    deleteLabelsOnIssue(issueNumber, labelsToDelete.toList)
+    addLabelsOnIssue(issueNumber, labelsToAdd.toList)
   }
 
   def updateCommentsOnIssue(issueNumber: Long, comments: List[NewComment]) = {
