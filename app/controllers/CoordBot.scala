@@ -147,25 +147,40 @@ object CoordBot extends Controller {
                     case Some(body) => issueBody = body
                     case None => throw new MalFormedJSONPayloadException("Illegal issue body")
                   }
+                  issueMap.get(issueNumber) match {
+                    case Some(issue) =>
+                      "Update this issue"
+                      if (issueAction != "closed") {
+                        Logger.debug("An issue is " + issueAction)
+                        Logger.debug("Issue title: " + issueTitle)
+                        Logger.debug("Issue body: " + issueBody)
+                        var body = ""
+                        if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
+                          Logger.debug("Add JIRA links to the body of issue " + issueNumber)
+                          GithubAPI.editIssueBody(issueNumber, issueBody + body)
+                        }
+                        issue.updateTitle(issueTitle)
+                        issue.updateBody(issueBody)
+                      } else // issue closed
+                        issueMap = issueMap.-(issueNumber)
+                    case None =>
+                      "Create a new issue"
+                      if (issueAction != "closed") {
+                        Logger.debug("An issue is " + issueAction)
+                        Logger.debug("Issue title: " + issueTitle)
+                        Logger.debug("Issue body: " + issueBody)
+                        var body = ""
+                        if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
+                          Logger.debug("Add JIRA links to the body of issue " + issueNumber)
+                          GithubAPI.editIssueBody(issueNumber, issueBody + body)
+                        }
+                        issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
+                      }
+                  }
                   val commentString = (json \ "comment").toString()
                   if (commentString != null) {
                     "update issue-comment view"
                     updateIssueCommentView(issueNumber)
-                  } else {
-                    if (issueAction == "opened" || issueAction == "reopened") {
-                      Logger.info("An issue is " + issueAction)
-                      Logger.info("Issue title: " + issueTitle)
-                      Logger.info("Issue body: " + issueBody)
-                      var body = ""
-                      if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
-                        Logger.info("Add JIRA links to the body of issue " + issueNumber)
-                        GithubAPI.editIssueBody(issueNumber, issueBody + body)
-                      }
-                      issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
-                    } else if (issueAction == "closed") { // issue closed
-                      issueMap = issueMap.-(issueNumber)
-                    } else
-                      throw new MalFormedJSONPayloadException("Illegal issue action: " + issueAction)
                   }
                 }
               case None => "Do nothing"
