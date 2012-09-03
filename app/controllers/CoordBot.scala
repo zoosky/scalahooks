@@ -48,6 +48,7 @@ object CoordBot extends Controller {
   var totalLabelList = new ListBuffer[String]()
 
   val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
+  val waitHourInterval = 6
   val waitDayInterval = 2
   val updateFrequency = 10 minutes
   val initialDelay = 1 minutes
@@ -205,6 +206,14 @@ object CoordBot extends Controller {
     receive
   }
 
+  def checkExpiredReviewWarning(reviewWarning: Comment): Boolean = {
+    def checkDay: Boolean = { milliSecToDay(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval }
+    def checkHour: Boolean = { milliSecToHour(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitHourInterval }
+    def checkMin: Boolean = { milliSecToMin(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitMinInterval }
+    def check: Boolean = checkHour
+    check
+  }
+
   def actorCheckIssueCommentView = {
     def refreshIssueCommentView = {
       issueMap.clear
@@ -218,8 +227,8 @@ object CoordBot extends Controller {
               case ReviewWarning =>
                 "Scan review comments"
                 val latestReviewWarning = issue.commentList.filter(comment => getReviewStatus(comment.Body) == ReviewWarning).maxBy(_.getCreateTime)
-                if (milliSecToDay(abs(latestReviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval) {
-                  GithubAPI.addCommentOnIssue(issue.Number, latestReviewWarning.Body)
+                if (checkExpiredReviewWarning(latestReviewWarning)) {
+                  GithubAPI.addCommentOnIssue(issue.Number, latestReviewWarning.Body) // this would trigger an issue update to delete the expired warning
                   Logger.debug("Actor adds new review warning comment")
                 }
               case _ => "Do nothing"
@@ -361,9 +370,8 @@ object CoordBot extends Controller {
           }
         case ReviewWarning =>
           "Delete the expired warning"
-          Logger.debug("Delete the expired warning")
           rWarnList.map { comment =>
-            if (milliSecToDay(abs(comment.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval)
+            if (checkExpiredReviewWarning(comment))
               newCommentList.+=(new Comment(CommentDeleted, comment.Id, "", null, null, ""))
           }
         case _ => "Do nothing"
