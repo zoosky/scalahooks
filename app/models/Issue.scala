@@ -24,7 +24,7 @@ class Comment (action: CommentAction, id: Long, body: String, createTime: Date, 
 }
 
 class Review(reviewer: String, var rStatus: ReviewStatus) {
-  def getReviewer = reviewer
+  def getReviewer = reviewer.drop(1)
   def getRStatus = rStatus
   def setRStatus(status: ReviewStatus) = {rStatus = status}
 }
