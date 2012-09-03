@@ -117,89 +117,92 @@ object CoordBot extends Controller {
    */
 
   def receiveGithubMsg = Action { msg =>
-    Logger.info("Receive message: " + msg.body.toString())
-    msg.body.asFormUrlEncoded.map { urlenc =>
-      val urlencPayload = (urlenc.get("payload")) match {
-        case Some(jsonStringSeq) =>
-          val jsonString = jsonStringSeq.head;
-          Logger.info("Receive JSON payload: " + jsonString)
-          try {
-            val json = Json.parse(jsonString)
-            var issueNumber: Long = -1
-            var issueAction, issueTitle, issueBody = ""
-            // action
-            (json \ "action").asOpt[String] match {
-              case Some(action) =>
-                issueAction = action
-                // issue
-                val issueString = (json \ "issue").toString()
-                if (issueString != null) {
-                  val issueJson = Json.parse(issueString)
-                  (issueJson \ "number").asOpt[Long] match {
-                    case Some(number) => issueNumber = number
-                    case None => throw new MalFormedJSONPayloadException("Missing issue number")
-                  }
-                  (issueJson \ "title").asOpt[String] match {
-                    case Some(title) => issueTitle = title
-                    case None => throw new MalFormedJSONPayloadException("Illegal issue title")
-                  }
-                  (issueJson \ "body").asOpt[String] match {
-                    case Some(body) => issueBody = body
-                    case None => throw new MalFormedJSONPayloadException("Illegal issue body")
-                  }
-                  issueMap.get(issueNumber) match {
-                    case Some(issue) =>
-                      "Update this issue"
-                      if (issueAction != "closed") {
-                        Logger.debug("An issue is " + issueAction)
-                        Logger.debug("Issue title: " + issueTitle)
-                        Logger.debug("Issue body: " + issueBody)
-                        var body = ""
-                        if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
-                          Logger.debug("Add JIRA links to the body of issue " + issueNumber)
-                          GithubAPI.editIssueBody(issueNumber, issueBody + body)
-                        }
-                        issue.updateTitle(issueTitle)
-                        issue.updateBody(issueBody)
-                      } else // issue closed
-                        issueMap = issueMap.-(issueNumber)
-                    case None =>
-                      "Create a new issue"
-                      if (issueAction != "closed") {
-                        Logger.debug("An issue is " + issueAction)
-                        Logger.debug("Issue title: " + issueTitle)
-                        Logger.debug("Issue body: " + issueBody)
-                        var body = ""
-                        if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
-                          Logger.debug("Add JIRA links to the body of issue " + issueNumber)
-                          GithubAPI.editIssueBody(issueNumber, issueBody + body)
-                        }
-                        issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody + body)))
-                      }
-                  }
-                  val commentString = (json \ "comment").toString()
-                  if (commentString != null) {
-                    "update issue-comment view"
-                    updateIssueCommentView(issueNumber)
-                  }
-                }
-              case None => "Do nothing"
-            }
-          } catch {
-            case e: MalFormedJSONPayloadException =>
-              Logger.error(e.toString())
-            case e: ParsingException =>
-              Logger.error(e.getMessage())
-            case _ =>
-              Logger.error("Expecting JSON data")
-          }
-        case None =>
-          BadRequest("Expecting URL-encoded payload")
+    var issueNumber: Long = -1
+    var issueAction, issueTitle, issueBody = ""
+    def processIssue = {
+      Logger.debug("An issue is " + issueAction)
+      Logger.debug("Issue title: " + issueTitle)
+      Logger.debug("Issue body: " + issueBody)
+      var body = ""
+      if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
+        Logger.debug("Add JIRA links to the body of issue " + issueNumber)
+        issueBody += body
+        GithubAPI.editIssueBody(issueNumber, issueBody)
       }
-      Ok("We are done!")
-    }.getOrElse {
-      BadRequest("Expecting URL-encoded data")
     }
+    def updateIssue = {
+      issueMap.get(issueNumber) match {
+        case Some(issue) =>
+          "Update this issue"
+          if (issueAction != "closed") {
+            processIssue
+            issue.updateTitle(issueTitle)
+            issue.updateBody(issueBody)
+          } else // issue closed
+            issueMap = issueMap.-(issueNumber)
+        case None =>
+          "Create a new issue"
+          if (issueAction != "closed") {
+            processIssue
+            issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody)))
+          }
+      }
+    }
+    def receive = {
+      Logger.info("Receive message: " + msg.body.toString())
+      msg.body.asFormUrlEncoded.map { urlenc =>
+        val urlencPayload = (urlenc.get("payload")) match {
+          case Some(jsonStringSeq) =>
+            val jsonString = jsonStringSeq.head;
+            Logger.info("Receive JSON payload: " + jsonString)
+            try {
+              val json = Json.parse(jsonString)
+              // action
+              (json \ "action").asOpt[String] match {
+                case Some(action) =>
+                  issueAction = action
+                  // issue
+                  val issueString = (json \ "issue").toString()
+                  if (issueString != null) {
+                    val issueJson = Json.parse(issueString)
+                    (issueJson \ "number").asOpt[Long] match {
+                      case Some(number) => issueNumber = number
+                      case None => throw new MalFormedJSONPayloadException("Missing issue number")
+                    }
+                    (issueJson \ "title").asOpt[String] match {
+                      case Some(title) => issueTitle = title
+                      case None => throw new MalFormedJSONPayloadException("Illegal issue title")
+                    }
+                    (issueJson \ "body").asOpt[String] match {
+                      case Some(body) => issueBody = body
+                      case None => throw new MalFormedJSONPayloadException("Illegal issue body")
+                    }
+                    updateIssue
+                    val commentString = (json \ "comment").toString()
+                    if (commentString != null) {
+                      "update issue-comment view"
+                      updateIssueCommentView(issueNumber)
+                    }
+                  }
+                case None => "Do nothing"
+              }
+            } catch {
+              case e: MalFormedJSONPayloadException =>
+                Logger.error(e.toString())
+              case e: ParsingException =>
+                Logger.error(e.getMessage())
+              case _ =>
+                Logger.error("Expecting JSON data")
+            }
+          case None =>
+            BadRequest("Expecting URL-encoded payload")
+        }
+        Ok("We are done!")
+      }.getOrElse {
+        BadRequest("Expecting URL-encoded data")
+      }
+    }
+    receive
   }
 
   def actorCheckIssueCommentView = {
@@ -210,16 +213,17 @@ object CoordBot extends Controller {
     def checkIssueCommentView = {
       issueMap.keySet.map { key =>
         issueMap.get(key) match {
-          case Some(issue) => issue.getRStatus match {
-            case ReviewWarning =>
-              "Scan review comments"
-              val latestReviewWarning = issue.commentList.filter(comment => getReviewStatus(comment.Body) == ReviewWarning).maxBy(_.getCreateTime)
-              if (milliSecToDay(abs(latestReviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval) {
-                GithubAPI.addCommentOnIssue(issue.Number, latestReviewWarning.Body)
-                Logger.debug("Actor adds new review warning comment")
-              }
-            case _ => "Do nothing"
-          }
+          case Some(issue) =>
+            issue.getRStatus match {
+              case ReviewWarning =>
+                "Scan review comments"
+                val latestReviewWarning = issue.commentList.filter(comment => getReviewStatus(comment.Body) == ReviewWarning).maxBy(_.getCreateTime)
+                if (milliSecToDay(abs(latestReviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval) {
+                  GithubAPI.addCommentOnIssue(issue.Number, latestReviewWarning.Body)
+                  Logger.debug("Actor adds new review warning comment")
+                }
+              case _ => "Do nothing"
+            }
           case None => "Do nothing"
         }
       }
