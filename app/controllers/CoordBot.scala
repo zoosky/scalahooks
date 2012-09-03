@@ -205,21 +205,29 @@ object CoordBot extends Controller {
   }
 
   def actorCheckIssueCommentView = {
-    issueMap.keySet.map { key =>
-      issueMap.get(key) match {
-        case Some(issue) => issue.getRStatus match {
-          case ReviewWarning =>
-            "Scan review comments"
-            val latestReviewWarning = issue.commentList.filter(comment => getReviewStatus(comment.Body) == ReviewWarning).maxBy(_.getCreateTime)
-            if (milliSecToDay(abs(latestReviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval) {
-              GithubAPI.addCommentOnIssue(issue.Number, latestReviewWarning.Body)
-              Logger.debug("Actor adds new review warning comment")
-            }
-          case _ => "Do nothing"
+    def refreshIssueCommentView = {
+      issueMap.clear
+      initIssueCommentView
+    }
+    def checkIssueCommentView = {
+      issueMap.keySet.map { key =>
+        issueMap.get(key) match {
+          case Some(issue) => issue.getRStatus match {
+            case ReviewWarning =>
+              "Scan review comments"
+              val latestReviewWarning = issue.commentList.filter(comment => getReviewStatus(comment.Body) == ReviewWarning).maxBy(_.getCreateTime)
+              if (milliSecToDay(abs(latestReviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > waitDayInterval) {
+                GithubAPI.addCommentOnIssue(issue.Number, latestReviewWarning.Body)
+                Logger.debug("Actor adds new review warning comment")
+              }
+            case _ => "Do nothing"
+          }
+          case None => "Do nothing"
         }
-        case None => "Do nothing"
       }
     }
+    refreshIssueCommentView
+    checkIssueCommentView
   }
 
   def getCommentsOnIssue(issueNumber: Long): List[Comment] = {
