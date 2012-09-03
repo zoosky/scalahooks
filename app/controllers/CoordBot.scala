@@ -52,6 +52,7 @@ object CoordBot extends Controller {
   val updateFrequency = 10 minutes
   val initialDelay = 1 minutes
   val enableActor = true
+  var coordBotInit = true
 
   val coordActor = Akka.system.actorOf(Props[CoordActor])
   if (enableActor) {
@@ -65,21 +66,23 @@ object CoordBot extends Controller {
 
   def index() = Action { implicit request =>
     handleTimeout(e => "Timeout when reading list of open issues " + e.toString) {
-      try {
-        // setup web hooks
-        setupGithubEnv
-        // initialize issue-comment view
-        issueMap.clear
-        initIssueCommentView
-      } catch {
-        case e: MalFormedJSONPayloadException =>
-          Logger.error(e.toString())
-        case e: MissingDefaultLabelsException =>
-          Logger.error(e.toString())
-        case e: ParsingException =>
-          Logger.error(e.getMessage())
-        case _ =>
-          Logger.error("Expecting JSON data")
+      if (coordBotInit) {
+        try {
+          // setup web hooks
+          setupGithubEnv
+          // initialize issue-comment view
+          issueMap.clear
+          initIssueCommentView
+        } catch {
+          case e: MalFormedJSONPayloadException =>
+            Logger.error(e.toString())
+          case e: MissingDefaultLabelsException =>
+            Logger.error(e.toString())
+          case e: ParsingException =>
+            Logger.error(e.getMessage())
+          case _ =>
+            Logger.error("Expecting JSON data")
+        }
       }
       // show open issues
       val issues = issueMap.values.toList.sortWith((a, b) => a.Number < b.Number)
@@ -178,7 +181,7 @@ object CoordBot extends Controller {
         case None =>
           BadRequest("Expecting URL-encoded payload")
       }
-      Ok("We are done")
+      Ok("We are done!")
     }.getOrElse {
       BadRequest("Expecting URL-encoded data")
     }
@@ -655,5 +658,6 @@ object CoordBot extends Controller {
     setupEnv
     deleteAllHooks
     GithubAPI.setupAllRepoHooks
+    coordBotInit = false
   }
 }
