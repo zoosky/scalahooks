@@ -12,7 +12,8 @@ case class MissingDefaultLabelsException(msg: String) extends RuntimeException {
   override def toString: String = msg
 }
 
-class Comment (action: CommentAction, id: Long, body: String, createTime: Date, updateTime: Date, userLogin: String) {
+case class Comment (action: CommentAction, id: Long, body: String, createTime: Date, updateTime: Date, userLogin: String) {
+  
   def Id: Long = {id}
   def Body: String = {body}
   def CreateTime: String = {createTime.toString()}

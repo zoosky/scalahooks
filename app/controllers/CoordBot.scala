@@ -678,14 +678,10 @@ object CoordBot extends Controller {
     GithubAPI.initParameters(gitHubUser, gitHubPassword, gitHubRepo, gitHubUrl, hookUrl)
     Logger.info("Github Webook parameters: " + "\nUser: " + gitHubUser + "\nRepository: " + gitHubRepo + "\nHook url: " + hookUrl)
     getLabels
-    var labels = ""
-    totalLabelList.map { label => labels += label + " " }
-    Logger.debug("Repo labels: " + labels)
+    Logger.debug("Repo labels: " + totalLabelList.mkString(" "))
     val missinglabels = missingLabels
     if (missinglabels.size != 0) {
-      labels = ""
-      missinglabels.map { label => labels += label + " " }
-      throw new MissingDefaultLabelsException("Default label(s) missing: " + labels)
+      throw new MissingDefaultLabelsException("Default label(s) missing: " + missinglabels.mkString(" "))
     }
   }
 
