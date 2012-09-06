@@ -39,12 +39,10 @@ object CoordBot extends Controller {
   val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
   //val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
-  val reviewerList = List("@taolee", "@adriaan", "@odersky", "@lukas", "@heather", "@vlad")
+  val reviewerList = List("@taolee", "@adriaan___", "@odersky___", "@lrytz___", "@heather___", "@vlad___")
   val reviewMsgList = List("Review", "review", "REVIEW")
   val reviewedMsgList = List("LGTM", "lgtm")
   val defaultLabelList = List("tested", "reviewed")
-  var specifiedReviewer = new ListBuffer[String]
-  var issueAction, issueTitle, issueBody = ""
   var totalLabelList = new ListBuffer[String]()
 
   val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
@@ -118,92 +116,63 @@ object CoordBot extends Controller {
    */
 
   def receiveGithubMsg = Action { msg =>
-    var issueNumber: Long = -1
-    var issueAction, issueTitle, issueBody = ""
-    def processIssue = {
-      Logger.debug("An issue is " + issueAction)
-      Logger.debug("Issue title: " + issueTitle)
-      Logger.debug("Issue body: " + issueBody)
-      var body = ""
-      if (missingJIRALinks(issueBody, JIRATickets(issueTitle)).map { link => body += "\n" + link }.size > 0) {
-        Logger.debug("Add JIRA links to the body of issue " + issueNumber)
-        issueBody += body
-        GithubAPI.editIssueBody(issueNumber, issueBody)
-      }
-    }
-    def updateIssue = {
-      issueMap.get(issueNumber) match {
-        case Some(issue) =>
-          "Update this issue"
-          if (issueAction != "closed") {
-            processIssue
-            issue.updateTitle(issueTitle)
-            issue.updateBody(issueBody)
-          } else // issue closed
-            issueMap = issueMap.-(issueNumber)
-        case None =>
-          "Create a new issue"
-          if (issueAction != "closed") {
-            processIssue
-            issueMap = issueMap.+((issueNumber, new Issue(issueNumber, issueTitle, issueBody)))
-          }
-      }
-    }
-    def receive = {
-      Logger.info("Receive message: " + msg.body.toString())
-      msg.body.asFormUrlEncoded.map { urlenc =>
-        val urlencPayload = (urlenc.get("payload")) match {
-          case Some(jsonStringSeq) =>
-            val jsonString = jsonStringSeq.head;
-            Logger.info("Receive JSON payload: " + jsonString)
-            try {
-              val json = Json.parse(jsonString)
-              // action
-              (json \ "action").asOpt[String] match {
-                case Some(action) =>
-                  issueAction = action
-                  // issue
-                  val issueString = (json \ "issue").toString()
-                  if (issueString != null) {
-                    val issueJson = Json.parse(issueString)
-                    (issueJson \ "number").asOpt[Long] match {
-                      case Some(number) => issueNumber = number
-                      case None => throw new MalFormedJSONPayloadException("Missing issue number")
-                    }
-                    (issueJson \ "title").asOpt[String] match {
-                      case Some(title) => issueTitle = title
-                      case None => throw new MalFormedJSONPayloadException("Illegal issue title")
-                    }
-                    (issueJson \ "body").asOpt[String] match {
-                      case Some(body) => issueBody = body
-                      case None => throw new MalFormedJSONPayloadException("Illegal issue body")
-                    }
-                    updateIssue
-                    val commentString = (json \ "comment").toString()
-                    if (commentString != null) {
-                      "update issue-comment view"
-                      updateIssueCommentView(issueNumber)
-                    }
+    Logger.info("Receive message: " + msg.body.toString())
+    msg.body.asFormUrlEncoded.map { urlenc =>
+      val urlencPayload = (urlenc.get("payload")) match {
+        case Some(jsonStringSeq) =>
+          val jsonString = jsonStringSeq.head;
+          Logger.info("Receive JSON payload: " + jsonString)
+          try {
+            val json = Json.parse(jsonString)
+            // action
+            (json \ "action").asOpt[String] match {
+              case Some(action) =>
+                var issueNumber: Long = -1
+                var issueAction, issueTitle, issueBody = ""
+                issueAction = action
+                // issue
+                val issueString = (json \ "issue").toString()
+                if (issueString != null) {
+                  val issueJson = Json.parse(issueString)
+                  (issueJson \ "number").asOpt[Long] match {
+                    case Some(number) => issueNumber = number
+                    case None => throw new MalFormedJSONPayloadException("Missing issue number")
                   }
-                case None => "Do nothing"
-              }
-            } catch {
-              case e: MalFormedJSONPayloadException =>
-                Logger.error(e.toString())
-              case e: ParsingException =>
-                Logger.error(e.getMessage())
-              case _ =>
-                Logger.error("Expecting JSON data")
+                  (issueJson \ "title").asOpt[String] match {
+                    case Some(title) => issueTitle = title
+                    case None => throw new MalFormedJSONPayloadException("Illegal issue title")
+                  }
+                  (issueJson \ "body").asOpt[String] match {
+                    case Some(body) => issueBody = body
+                    case None => throw new MalFormedJSONPayloadException("Illegal issue body")
+                  }
+                  val links = missingJIRALinks(issueBody, JIRATickets(issueTitle))
+                  if (links.size > 0) {
+                    Logger.debug("Add JIRA links to the body of issue " + issueNumber)
+                    GithubAPI.editIssueBody(issueNumber, links.mkString("", "\n", "\n") + issueBody)
+                  }
+                  if (issueAction != "closed")
+                    issueMap.update(issueNumber, updatedIssueCommentView(issueNumber))
+                  else
+                    issueMap = issueMap.-(issueNumber)
+                }
+              case None => "Do nothing"
             }
-          case None =>
-            BadRequest("Expecting URL-encoded payload")
-        }
-        Ok("We are done!")
-      }.getOrElse {
-        BadRequest("Expecting URL-encoded data")
+          } catch {
+            case e: MalFormedJSONPayloadException =>
+              Logger.error(e.toString())
+            case e: ParsingException =>
+              Logger.error(e.getMessage())
+            case _ =>
+              Logger.error("Expecting JSON data")
+          }
+        case None =>
+          BadRequest("Expecting URL-encoded payload")
       }
+      Ok("We are done!")
+    }.getOrElse {
+      BadRequest("Expecting URL-encoded data")
     }
-    receive
   }
 
   def checkExpiredReviewWarning(reviewWarning: Comment): Boolean = {
@@ -264,7 +233,6 @@ object CoordBot extends Controller {
     var rWarnList = new ListBuffer[Comment]()
     var bSuccList = new ListBuffer[Comment]()
     var tSuccList = new ListBuffer[Comment]()
-    var reviewWarning = ""
 
     def scanComments = {
       commentList.++=(getCommentsOnIssue(issueNumber).sortWith((a, b) => a.getCreateTime < b.getCreateTime))
@@ -323,18 +291,16 @@ object CoordBot extends Controller {
               case ReviewOpen =>
                 "Delete the reviewed label, and save comment id for redundancy check"
                 labelList.-=("reviewed")
-                reviewList = specifiedReviewer.map { reviewer => new Review(reviewer, ReviewOpen) }
+                reviewList = rstatus.reviewers.map { reviewer => new Review(reviewer, ReviewOpen) }
                 rOpenList.+=(comment)
                 rStatus = rstatus
               case ReviewFault =>
                 "Add illegal reviewer comment"
-                var reviewers = ""
-                specifiedReviewer.filter { reviewer => !reviewerList.contains(reviewer) }.map { reviewer => reviewers += reviewer.drop(1) + " " }
-                reviewWarning = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + reviewers
                 rStatus = rstatus
+                rStatus.msg = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + rstatus.reviewers.filter { reviewer => !reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
               case ReviewDone =>
                 "Add the reviewed label"
-                reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.setRStatus(ReviewDone); review } else review }
+                reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.copy(rStatus = ReviewDone); review } else review }
                 if (reviewList.forall { review => review.getRStatus == ReviewDone }) {
                   // wait until all reviewers add LGTM comments 
                   labelList.+=("reviewed")
@@ -355,7 +321,7 @@ object CoordBot extends Controller {
       rStatus match {
         case ReviewFault =>
           "add review warning comment"
-          newCommentList.+=(new Comment(CommentCreated, -1, reviewWarning, null, null, ""))
+          newCommentList.+=(new Comment(CommentCreated, -1, rStatus.msg, null, null, ""))
         case _ => "Do nothing"
       }
     }
@@ -390,7 +356,6 @@ object CoordBot extends Controller {
         case _ => "Do nothing"
       }
     }
-
     scanComments
     addComments
     deleteComments
@@ -436,14 +401,17 @@ object CoordBot extends Controller {
     }
     if (msg.contains("@") && reviewMsg(msg)) {
       var tokens = new ListBuffer[String]
+      var rstatus: ReviewStatus = ReviewOpen
       tokens.++=(msg.split(" "))
-      specifiedReviewer = tokens.filter(token => token.contains("@")) // assume all reviewers are specified in one comment
-      var reviewers = ""
-      specifiedReviewer.map(reviewer => reviewers += reviewer + " ")
-      Logger.debug("Specified reviewers: " + reviewers)
-      for (token <- specifiedReviewer; if !reviewerList.contains(token))
-        return ReviewFault
-      ReviewOpen
+      val reviewers = tokens.filter(token => token.contains("@")) // assume all reviewers are specified in one comment
+      Logger.debug("Specified reviewers: " + reviewers.mkString(" "))
+      for (token <- reviewers; if !reviewerList.contains(token)) {
+        rstatus = ReviewFault
+        rstatus.reviewers = reviewers
+        return rstatus
+      }
+      rstatus.reviewers = reviewers
+      rstatus
     } else if (reviewedMsg(msg))
       ReviewDone
     else
@@ -523,42 +491,41 @@ object CoordBot extends Controller {
       TestNone
   }
 
-  def updateIssueCommentView(issueNumber: Long) = {
-    issueMap.get(issueNumber) match {
-      case Some(issue) =>
-        // update issue view
-        val issueString = GithubAPI.getIssue(issueNumber)
-        val issueJson = Json.parse(issueString)
-        (issueJson \ "number").asOpt[Long] match {
-          case Some(number) => "Do nothing"
-          case None => throw new MalFormedJSONPayloadException("Missing issue number")
-        }
-        (issueJson \ "title").asOpt[String] match {
-          case Some(title) => issue.updateTitle(title)
-          case None => throw new MalFormedJSONPayloadException("Missing issue title")
-        }
-        (issueJson \ "body").asOpt[String] match {
-          case Some(body) => issue.updateBody(body)
-          case None => throw new MalFormedJSONPayloadException("Missing issue body")
-        }
-        // update comment view
-        checkIssueCommentView(issueNumber) match {
-          case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) =>
-            issue.updateBState(bstate)
-            issue.updateTState(tstate)
-            issue.updateRStatus(rstatus)
-            issue.labels.--=(List("tested", "reviewed"))
-            issue.labels.++=(labelList)
-            updateLabelsOnIssue(issueNumber, labelList)
-            issue.reviewList.clear
-            issue.reviewList.++=(reviewList)
-            issue.commentList.clear
-            issue.commentList.++=(commentList)
-            updateCommentsOnIssue(issueNumber, newCommentList)
-            Logger.debug(issue.toString())
-        }
-      case None => "Do nothing"
+  def updatedIssueCommentView(issueNumber: Long): Issue = {
+    var issueNumber: Long = -1
+    var issueAction, issueTitle, issueBody = ""
+    val issueString = GithubAPI.getIssue(issueNumber)
+    val issueJson = Json.parse(issueString)
+    (issueJson \ "number").asOpt[Long] match {
+      case Some(number) => "Do nothing"
+      case None => throw new MalFormedJSONPayloadException("Missing issue number")
     }
+    (issueJson \ "title").asOpt[String] match {
+      case Some(title) => issueTitle = title
+      case None => throw new MalFormedJSONPayloadException("Missing issue title")
+    }
+    (issueJson \ "body").asOpt[String] match {
+      case Some(body) => issueBody = body
+      case None => throw new MalFormedJSONPayloadException("Missing issue body")
+    }
+    var newIssue = new Issue(issueNumber, issueTitle, issueBody)
+    // update comment view
+    checkIssueCommentView(issueNumber) match {
+      case (bstate, tstate, rstatus, labelList, reviewList, commentList, newCommentList) =>
+        newIssue.updateBState(bstate)
+        newIssue.updateTState(tstate)
+        newIssue.updateRStatus(rstatus)
+        newIssue.labels.--=(List("tested", "reviewed"))
+        newIssue.labels.++=(labelList)
+        updateLabelsOnIssue(issueNumber, labelList)
+        newIssue.reviewList.clear
+        newIssue.reviewList.++=(reviewList)
+        newIssue.commentList.clear
+        newIssue.commentList.++=(commentList)
+        updateCommentsOnIssue(issueNumber, newCommentList)
+        Logger.debug(newIssue.toString())
+    }
+    newIssue
   }
 
   def initIssueCommentView = {
@@ -566,9 +533,10 @@ object CoordBot extends Controller {
     val issues = com.codahale.jerkson.Json.parse[List[GithubAPIIssue]](issueString)
     for (issue <- issues) {
       var body = ""
-      if (missingJIRALinks(issue.body, JIRATickets(issue.title)).map { link => body += "\n" + link }.size > 0) {
+      val links = missingJIRALinks(issue.body, JIRATickets(issue.title))
+      if (links.size > 0) {
         Logger.debug("Add JIRA links to the body of issue " + issue.number)
-        GithubAPI.editIssueBody(issue.number, issue.body + body)
+        GithubAPI.editIssueBody(issue.number, links.mkString("", "\n", "\n") + issue.body)
       }
       var newIssue = new Issue(issue.number, issue.title, issue.body + body)
       if (issue.comments > 0 && issue.number > 0) {
@@ -678,14 +646,10 @@ object CoordBot extends Controller {
     GithubAPI.initParameters(gitHubUser, gitHubPassword, gitHubRepo, gitHubUrl, hookUrl)
     Logger.info("Github Webook parameters: " + "\nUser: " + gitHubUser + "\nRepository: " + gitHubRepo + "\nHook url: " + hookUrl)
     getLabels
-    var labels = ""
-    totalLabelList.map { label => labels += label + " " }
-    Logger.debug("Repo labels: " + labels)
+    Logger.debug("Repo labels: " + totalLabelList.mkString(" "))
     val missinglabels = missingLabels
     if (missinglabels.size != 0) {
-      labels = ""
-      missinglabels.map { label => labels += label + " " }
-      throw new MissingDefaultLabelsException("Default label(s) missing: " + labels)
+      throw new MissingDefaultLabelsException("Default label(s) missing: " + missinglabels.mkString(" "))
     }
   }
 

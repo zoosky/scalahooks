@@ -12,7 +12,7 @@ case class MissingDefaultLabelsException(msg: String) extends RuntimeException {
   override def toString: String = msg
 }
 
-class Comment (action: CommentAction, id: Long, body: String, createTime: Date, updateTime: Date, userLogin: String) {
+case class Comment (action: CommentAction, id: Long, body: String, createTime: Date, updateTime: Date, userLogin: String) {
   def Id: Long = {id}
   def Body: String = {body}
   def CreateTime: String = {createTime.toString()}
@@ -23,13 +23,12 @@ class Comment (action: CommentAction, id: Long, body: String, createTime: Date, 
   def Action = {action}
 }
 
-class Review(reviewer: String, var rStatus: ReviewStatus) {
+case class Review(reviewer: String, rStatus: ReviewStatus) {
   def getReviewer = reviewer.drop(1)
   def getRStatus = rStatus
-  def setRStatus(status: ReviewStatus) = {rStatus = status}
 }
 
-class Issue (number: Long, var title: String, var body: String) {
+case class Issue (number: Long, title: String, body: String) {
   private var rStatus: ReviewStatus = ReviewNone
   private var bState: BuildState = BuildNone
   private var tState: TestState = TestNone
@@ -45,8 +44,6 @@ class Issue (number: Long, var title: String, var body: String) {
   def updateTState(state: TestState) = {tState = state}
   def getRStatus: ReviewStatus = {rStatus}
   def updateRStatus(status: ReviewStatus) = {rStatus = status}
-  def updateTitle(title: String) = {this.title = title}
-  def updateBody(body: String) = {this.body = body}
   override def toString(): String = {
     val issueString = "Issue number: " + this.number.toString() + "\n" +
                       "Issue title: "  + this.title             + "\n" +
@@ -107,12 +104,15 @@ case object TestStart             extends TestState
 case object TestSuccess           extends TestState
 case object TestFailure           extends TestState
 
-sealed trait ReviewStatus {}
-object ReviewStatus {}
+sealed trait ReviewStatus {
+  var reviewers = new ListBuffer[String]()
+  var msg = ""
+}
+object ReviewStatus
 
 case object ReviewNone            extends ReviewStatus
-case object ReviewOpen            extends ReviewStatus
-case object ReviewFault           extends ReviewStatus
+case object ReviewOpen            extends ReviewStatus 
+case object ReviewFault           extends ReviewStatus 
 case object ReviewDone            extends ReviewStatus
 case object ReviewWarning         extends ReviewStatus
 
