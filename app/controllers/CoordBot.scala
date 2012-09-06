@@ -25,6 +25,7 @@ import java.util.Calendar
 import org.codehaus.jackson.JsonNode
 import com.codahale.jerkson.ParsingException
 import math._
+import scala.collection.mutable.SynchronizedMap
 
 /**
  */
@@ -38,12 +39,12 @@ object CoordBot extends Controller {
   //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
   val hookUrl = "http://requestb.in/1imhe4b1"
-  var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
+  var issueMap: Map[Long, Issue] = new HashMap[Long, Issue] with SynchronizedMap[Long, Issue]
   val reviewerList = List("@taolee", "@adriaan___", "@odersky___", "@lrytz___", "@heather___", "@vlad___")
   val reviewMsgList = List("Review", "review", "REVIEW")
   val reviewedMsgList = List("LGTM", "lgtm")
   val defaultLabelList = List("tested", "reviewed")
-  var totalLabelList = new ListBuffer[String]()
+  var totalLabelList = new ListBuffer[String]
 
   val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
   val waitHourInterval = 6
@@ -130,7 +131,6 @@ object CoordBot extends Controller {
                 var issueNumber: Long = -1
                 var issueAction, issueTitle, issueBody = ""
                 issueAction = action
-                Logger.debug("Action: " + action)
                 // issue
                 val issueString = (json \ "issue").toString()
                 if (issueString != null) {
@@ -147,20 +147,19 @@ object CoordBot extends Controller {
                     case Some(body) => issueBody = body
                     case None => throw new MalFormedJSONPayloadException("Missing issue body")
                   }
-                  Logger.debug("(number, title, body) OK")
                   val links = missingJIRALinks(issueBody, JIRATickets(issueTitle))
                   if (links.size > 0) {
                     Logger.debug("Add JIRA links to the body of issue " + issueNumber)
                     GithubAPI.editIssueBody(issueNumber, links.mkString("", "\n", "\n") + issueBody)
                   }
-                  Logger.debug("Edit body OK")
                   if (issueAction != "closed") {
-                    Logger.debug("Updating issue number " + issueNumber.toString() + "...")
+                    Logger.debug("Update issue " + issueNumber.toString())
                     issueMap.update(issueNumber, updatedIssueCommentView(issueNumber))
-                    Logger.debug("Updating OK")
                   }
-                  else
+                  else {
+                    Logger.debug("Close issue " + issueNumber.toString())
                     issueMap = issueMap.-(issueNumber)
+                  }
                 }
               case None => "Do nothing"
             }
@@ -307,7 +306,8 @@ object CoordBot extends Controller {
               case ReviewDone =>
                 "Add the reviewed label"
                 reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.copy(rStatus = ReviewDone) } else review }
-                if (reviewList.forall { review => review.getRStatus == ReviewDone }) {
+                if (reviewList.size > 0 && 
+                    reviewList.forall { review => review.getRStatus == ReviewDone }) {
                   // wait until all reviewers add LGTM comments 
                   labelList.+=("reviewed")
                   rStatus = rstatus
