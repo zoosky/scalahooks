@@ -35,9 +35,9 @@ object CoordBot extends Controller {
   val gitHubUser = "taolee"
   val gitHubPassword = "taolee123"
   val gitHubRepo = "scalahooks"
-  val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
+  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
   val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
-  //val hookUrl = "http://requestb.in/1imhe4b1"
+  val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue]()
   val reviewerList = List("@taolee", "@adriaan___", "@odersky___", "@lrytz___", "@heather___", "@vlad___")
   val reviewMsgList = List("Review", "review", "REVIEW")
@@ -130,6 +130,7 @@ object CoordBot extends Controller {
                 var issueNumber: Long = -1
                 var issueAction, issueTitle, issueBody = ""
                 issueAction = action
+                Logger.debug("Action: " + action)
                 // issue
                 val issueString = (json \ "issue").toString()
                 if (issueString != null) {
@@ -146,14 +147,17 @@ object CoordBot extends Controller {
                     case Some(body) => issueBody = body
                     case None => throw new MalFormedJSONPayloadException("Missing issue body")
                   }
+                  Logger.debug("(number, title, body) OK")
                   val links = missingJIRALinks(issueBody, JIRATickets(issueTitle))
                   if (links.size > 0) {
                     Logger.debug("Add JIRA links to the body of issue " + issueNumber)
                     GithubAPI.editIssueBody(issueNumber, links.mkString("", "\n", "\n") + issueBody)
                   }
+                  Logger.debug("Edit body OK")
                   if (issueAction != "closed") {
-                    issueMap = issueMap.-(issueNumber)
+                    Logger.debug("Updating issue number " + issueNumber.toString() + "...")
                     issueMap.update(issueNumber, updatedIssueCommentView(issueNumber))
+                    Logger.debug("Updating OK")
                   }
                   else
                     issueMap = issueMap.-(issueNumber)
@@ -302,7 +306,7 @@ object CoordBot extends Controller {
                 rStatus.msg = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + rstatus.reviewers.filter { reviewer => !reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
               case ReviewDone =>
                 "Add the reviewed label"
-                reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.copy(rStatus = ReviewDone); review } else review }
+                reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.copy(rStatus = ReviewDone) } else review }
                 if (reviewList.forall { review => review.getRStatus == ReviewDone }) {
                   // wait until all reviewers add LGTM comments 
                   labelList.+=("reviewed")
@@ -494,8 +498,7 @@ object CoordBot extends Controller {
   }
 
   def updatedIssueCommentView(issueNumber: Long): Issue = {
-    var issueNumber: Long = -1
-    var issueAction, issueTitle, issueBody = ""
+    var issueTitle, issueBody = ""
     val issueString = GithubAPI.getIssue(issueNumber)
     val issueJson = Json.parse(issueString)
     (issueJson \ "number").asOpt[Long] match {
