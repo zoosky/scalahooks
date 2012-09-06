@@ -520,9 +520,7 @@ object CoordBot extends Controller {
         newIssue.labels.--=(List("tested", "reviewed"))
         newIssue.labels.++=(labelList)
         updateLabelsOnIssue(issueNumber, labelList)
-        newIssue.reviewList.clear
         newIssue.reviewList.++=(reviewList)
-        newIssue.commentList.clear
         newIssue.commentList.++=(commentList)
         updateCommentsOnIssue(issueNumber, newCommentList)
         Logger.debug(newIssue.toString())
