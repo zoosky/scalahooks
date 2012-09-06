@@ -140,19 +140,21 @@ object CoordBot extends Controller {
                   }
                   (issueJson \ "title").asOpt[String] match {
                     case Some(title) => issueTitle = title
-                    case None => throw new MalFormedJSONPayloadException("Illegal issue title")
+                    case None => throw new MalFormedJSONPayloadException("Missing issue title")
                   }
                   (issueJson \ "body").asOpt[String] match {
                     case Some(body) => issueBody = body
-                    case None => throw new MalFormedJSONPayloadException("Illegal issue body")
+                    case None => throw new MalFormedJSONPayloadException("Missing issue body")
                   }
                   val links = missingJIRALinks(issueBody, JIRATickets(issueTitle))
                   if (links.size > 0) {
                     Logger.debug("Add JIRA links to the body of issue " + issueNumber)
                     GithubAPI.editIssueBody(issueNumber, links.mkString("", "\n", "\n") + issueBody)
                   }
-                  if (issueAction != "closed")
+                  if (issueAction != "closed") {
+                    issueMap = issueMap.-(issueNumber)
                     issueMap.update(issueNumber, updatedIssueCommentView(issueNumber))
+                  }
                   else
                     issueMap = issueMap.-(issueNumber)
                 }
@@ -518,9 +520,7 @@ object CoordBot extends Controller {
         newIssue.labels.--=(List("tested", "reviewed"))
         newIssue.labels.++=(labelList)
         updateLabelsOnIssue(issueNumber, labelList)
-        newIssue.reviewList.clear
         newIssue.reviewList.++=(reviewList)
-        newIssue.commentList.clear
         newIssue.commentList.++=(commentList)
         updateCommentsOnIssue(issueNumber, newCommentList)
         Logger.debug(newIssue.toString())
