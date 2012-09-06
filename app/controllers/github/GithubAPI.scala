@@ -33,7 +33,7 @@ object GithubAPI {
      {
        "name": "web",
        "events": [
-       "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public" 
+         "push", "issues", "issue_comment", "commit_comment", "pull_request", "gollum", "watch", "download", "fork", "fork_apply", "member", "public" 
        ],
        "active": true,
        "config": {
@@ -267,6 +267,7 @@ object GithubAPI {
 }
 
 /**
+ * JSON related
  * */
 
 case class GithubAPILabel(url: String, 
