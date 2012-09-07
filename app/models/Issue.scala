@@ -27,7 +27,6 @@ case class Comment (comment: GithubAPIComment) {
 
 case class Review(reviewer: String, rStatus: ReviewStatus) {
   def getReviewer = reviewer.drop(1)
-  def getRStatus = rStatus
 }
 
 case class Issue (issue: GithubAPIIssue) {
@@ -54,7 +53,7 @@ case class Issue (issue: GithubAPIIssue) {
     issueString + commentString
   }
   def describe: String = {
-    "<< " + issue.title + " >> " + issue.body
+    "<< " + issue.title + " >> "
   }
   def isTested: Boolean = {
     return labels.contains("tested")

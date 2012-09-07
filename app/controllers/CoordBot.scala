@@ -22,25 +22,8 @@ import play.api.Logger
 
 object CoordBot extends Controller {
 
-  val gitHubUser = "taolee"
-  val gitHubPassword = "taolee123"
-  val gitHubRepo = "scalahooks"
-  //val hookUrl = "http://scalahooks.herokuapp.com/githubMsg"
-  val gitHubUrl = "https://api.github.com/repos/" + gitHubUser + "/" + gitHubRepo
-  val hookUrl = "http://requestb.in/1imhe4b1"
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue] with SynchronizedMap[Long, Issue]
-  val reviewerList = List("@taolee", "@adriaan___", "@odersky___", "@lrytz___", "@heather___", "@vlad___")
-  val reviewMsgList = List("Review", "review", "REVIEW")
-  val reviewedMsgList = List("LGTM", "lgtm")
-  val defaultLabelList = List("tested", "reviewed")
   var totalLabelList = new ListBuffer[String]
-
-  val waitMinInterval = 12 * 48 // 48 hours = (12 * 5) * 48 minutes
-  val waitHourInterval = 6
-  val waitDayInterval = 2
-  val updateFrequency = 10 minutes
-  val initialDelay = 1 minutes
-  val enableActor = true
   var coordBotInit = true
 
   /**
@@ -48,8 +31,8 @@ object CoordBot extends Controller {
    * */
   
   val coordActor = Akka.system.actorOf(Props[CoordActor])
-  if (enableActor) {
-    Akka.system.scheduler.schedule(initialDelay, updateFrequency, coordActor, "refresh")
+  if (Config.enableActor) {
+    Akka.system.scheduler.schedule(Config.initialDelay, Config.updateFrequency, coordActor, "refresh")
     Logger.debug("Coordination Actor is activated")
   }
 
@@ -58,7 +41,7 @@ object CoordBot extends Controller {
    */
 
   def index() = Action { implicit request =>
-    handleTimeout(e => "Timeout when reading list of open issues " + e.toString) {
+    handleTimeout(e => "Timeout when reading the list of open issues " + e.toString) {
       if (coordBotInit) {
         try {
           // setup web hooks
@@ -145,7 +128,7 @@ object CoordBot extends Controller {
   }
 
   def editIssue(issue: GithubAPIIssue): GithubAPIIssue = {
-    var newIssueBody = ""
+    var newIssueBody = issue.body
     val links = CoordBotUtil.missingJIRALinks(issue.body, CoordBotUtil.JIRATickets(issue.title))
     if (links.size > 0) {
       Logger.debug("Add JIRA links to the body of issue " + issue.number)
@@ -210,7 +193,7 @@ object CoordBot extends Controller {
         case ReviewFault =>
           "Add illegal reviewer comment"
           rStatus = rstatus
-          rStatus.msg = "Web Bot: unrecognized reviewers by @" + issue.user.login + " : " + rstatus.reviewers.filter { reviewer => !reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
+          rStatus.msg = "Web Bot: unrecognized reviewers by @" + issue.user.login + " : " + rstatus.reviewers.filter { reviewer => !Config.reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
         case _ => "Do nothing"
       }
     }
@@ -278,12 +261,13 @@ object CoordBot extends Controller {
               case ReviewFault =>
                 "Add illegal reviewer comment"
                 rStatus = rstatus
-                rStatus.msg = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + rstatus.reviewers.filter { reviewer => !reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
+                rStatus.msg = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + rstatus.reviewers.filter { reviewer => !Config.reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
               case ReviewDone =>
                 "Add the reviewed label"
                 reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.copy(rStatus = ReviewDone) } else review }
                 if (reviewList.size > 0 &&
-                  reviewList.forall { review => review.getRStatus == ReviewDone }) {
+                  reviewList.forall { review => review.rStatus == ReviewDone }) {
+                  Logger.debug("All reviewers LGTM")
                   // wait until all reviewers add LGTM comments 
                   labelList.+=("reviewed")
                   rStatus = rstatus
@@ -379,8 +363,8 @@ object CoordBot extends Controller {
   }
 
   def setupEnv = {
-    GithubAPI.initParameters(gitHubUser, gitHubPassword, gitHubRepo, gitHubUrl, hookUrl)
-    Logger.info("Github Webook parameters: " + "\nUser: " + gitHubUser + "\nRepository: " + gitHubRepo + "\nHook url: " + hookUrl)
+    GithubAPI.initParameters(Config.gitHubUser, Config.gitHubPassword, Config.gitHubRepo, Config.gitHubUrl, Config.hookUrl)
+    Logger.info("Github Webook parameters: " + "\nUser: " + Config.gitHubUser + "\nRepository: " + Config.gitHubRepo + "\nHook url: " + Config.hookUrl)
     CoordBotUtil.getLabels
     Logger.debug("Repo labels: " + totalLabelList.mkString(" "))
     val missinglabels = CoordBotUtil.missingLabels

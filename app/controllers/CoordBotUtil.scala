@@ -72,8 +72,8 @@ object CoordBotUtil {
       var rstatus: ReviewStatus = ReviewOpen
       tokens.++=(msg.split(" "))
       val reviewers = tokens.filter(token => token.contains("@")) // assume all reviewers are specified in one comment
-      Logger.debug("Specified reviewers: " + reviewers.mkString(" "))
-      for (token <- reviewers; if !CoordBot.reviewerList.contains(token)) {
+      Logger.debug("Specified reviewers: " + reviewers.map {_.drop(1)}.mkString(" "))
+      for (token <- reviewers; if !Config.reviewerList.contains(token)) {
         rstatus = ReviewFault
         rstatus.reviewers = reviewers
         return rstatus
@@ -87,13 +87,13 @@ object CoordBotUtil {
   }
 
   def reviewMsg(msg: String): Boolean = {
-    for (token <- CoordBot.reviewMsgList; if (msg.contains(token)))
+    for (token <- Config.reviewMsgList; if (msg.contains(token)))
       return true
     false
   }
 
   def reviewedMsg(msg: String): Boolean = {
-    for (token <- CoordBot.reviewedMsgList; if (msg.contains(token)))
+    for (token <- Config.reviewedMsgList; if (msg.contains(token)))
       return true
     false
   }
@@ -177,7 +177,7 @@ object CoordBotUtil {
   }
 
   def missingLabels: List[String] = {
-    val missingLabels = for (label <- CoordBot.defaultLabelList; if (!CoordBot.totalLabelList.contains(label)))
+    val missingLabels = for (label <- Config.defaultLabelList; if (!CoordBot.totalLabelList.contains(label)))
       yield label
     missingLabels
   }
@@ -231,9 +231,9 @@ object CoordBotUtil {
   }
   
   def checkExpiredReviewWarning(reviewWarning: Comment): Boolean = {
-    def checkDay: Boolean = { CoordBotUtil.milliSecToDay(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > CoordBot.waitDayInterval }
-    def checkHour: Boolean = { CoordBotUtil.milliSecToHour(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > CoordBot.waitHourInterval }
-    def checkMin: Boolean = { CoordBotUtil.milliSecToMin(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > CoordBot.waitMinInterval }
+    def checkDay: Boolean = { CoordBotUtil.milliSecToDay(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > Config.waitDayInterval }
+    def checkHour: Boolean = { CoordBotUtil.milliSecToHour(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > Config.waitHourInterval }
+    def checkMin: Boolean = { CoordBotUtil.milliSecToMin(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > Config.waitMinInterval }
     def check: Boolean = checkHour
     check
   }
