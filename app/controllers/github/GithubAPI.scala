@@ -318,7 +318,7 @@ case class GithubAPIIssue(url: String,
                           assignee: JsonNode, 
                           milestone: JsonNode, 
                           comments: Long, 
-                          pull_request: JsonNode, 
+                          pull_request: GithubAPIPullRequest, 
                           closed_at: JsonNode, 
                           created_at: String, 
                           updated_at: String) 
