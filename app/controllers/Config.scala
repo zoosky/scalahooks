@@ -24,4 +24,6 @@ object Config {
   val initialDelay = 1 minutes
   val enableActor = true
   
+  val pullRequestMileStone = Map("taolee:master" -> "RC1", 
+                                 "taolee:heroku" -> "RC0")
 }

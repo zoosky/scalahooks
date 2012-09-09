@@ -222,8 +222,8 @@ object CoordBotUtil {
 
   def getAllHooks: List[GithubAPIHook] = {
     val hookString = GithubAPI.getHooks
-    val githubhooks = com.codahale.jerkson.Json.parse[List[GithubAPIHook]](hookString).sortWith((a, b) => a.id < b.id)
-    githubhooks
+    val hooks = com.codahale.jerkson.Json.parse[List[GithubAPIHook]](hookString).sortWith((a, b) => a.id < b.id)
+    hooks
   }
 
   def deleteAllHooks = {
@@ -241,6 +241,14 @@ object CoordBotUtil {
   def printIssueMap = {
     for (issue <- CoordBot.issueMap.values) {
       Logger.debug(issue.toString())
+    }
+  }
+  
+  def getMilestones = {
+    val milestoneString = GithubAPI.getMilestones
+    val milestones = com.codahale.jerkson.Json.parse[List[GithubAPIMilestone]](milestoneString)
+    for (milestone <- milestones) {
+      CoordBot.milestoneMap = CoordBot.milestoneMap.+=((milestone.title, milestone.number))
     }
   }
 }

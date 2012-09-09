@@ -24,12 +24,13 @@ object CoordBot extends Controller {
 
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue] with SynchronizedMap[Long, Issue]
   var totalLabelList = new ListBuffer[String]
+  var milestoneMap: Map[String, Long] = new HashMap[String, Long]
   var coordBotInit = true
 
   /**
    * Actor
-   * */
-  
+   */
+
   val coordActor = Akka.system.actorOf(Props[CoordActor])
   if (Config.enableActor) {
     Akka.system.scheduler.schedule(Config.initialDelay, Config.updateFrequency, coordActor, "refresh")
@@ -55,6 +56,8 @@ object CoordBot extends Controller {
           case e: MissingDefaultLabelsException =>
             Logger.error(e.toString())
           case e: ParsingException =>
+            Logger.error(e.getMessage())
+          case e: MissingMilestoneMappingException =>
             Logger.error(e.getMessage())
           case _ =>
             Logger.error("Expecting JSON data")
@@ -142,6 +145,9 @@ object CoordBot extends Controller {
     def refreshView = {
       issueMap.clear
       initIssueCommentView
+      totalLabelList.clear
+      CoordBotUtil.getLabels
+      CoordBotUtil.getMilestones
     }
     def checkView = {
       issueMap.keySet.map { key =>
@@ -161,8 +167,21 @@ object CoordBot extends Controller {
         }
       }
     }
-    refreshView
-    checkView
+    try {
+      refreshView
+      checkView
+    } catch {
+      case e: MalFormedJSONPayloadException =>
+        Logger.error(e.toString())
+      case e: MissingDefaultLabelsException =>
+        Logger.error(e.toString())
+      case e: ParsingException =>
+        Logger.error(e.getMessage())
+      case e: MissingMilestoneMappingException =>
+        Logger.error(e.getMessage())
+      case _ =>
+        Logger.error("Expecting JSON data")
+    }
   }
 
   def checkIssueCommentView(issue: GithubAPIIssue): Issue = {
@@ -179,6 +198,32 @@ object CoordBot extends Controller {
     var rWarnList = new ListBuffer[Comment]
     var bSuccList = new ListBuffer[Comment]
     var tSuccList = new ListBuffer[Comment]
+
+    def checkPullRequest = {
+      if (issue.pull_request.html_url != null) {
+        Logger.debug("A Pull Request!")
+        // check base label and set milestone
+        val pullString = GithubAPI.getPullRequest(issue.number)
+        val pull = com.codahale.jerkson.Json.parse[GithubAPIPullRequest](pullString)
+        Config.pullRequestMileStone.get(pull.base.label) match {
+          case Some(milestone) =>
+            milestoneMap.get(milestone) match {
+              case Some(milestoneNumber) =>
+                GithubAPI.editIssueMilestone(issue.number, milestoneNumber)
+              case None =>
+                "Ooops, something is wrong."
+                Logger.error("Cannot find milestone: " + milestone)
+                throw new MissingMilestoneMappingException("Cannot find milestone: " + milestone)
+            }
+          case None =>
+            "Ooops, something is wrong."
+            Logger.error("Cannot find the milestone mapping of " + pull.base.label)
+            throw new MissingMilestoneMappingException("Cannot find the milestone mapping of " + pull.base.label)
+        }
+        // add links to JIRA issue tracker
+
+      }
+    }
 
     def scanIssueTitle = {}
 
@@ -336,7 +381,8 @@ object CoordBot extends Controller {
       Logger.debug(newIssue.toString())
       newIssue
     }
-    
+
+    checkPullRequest
     scanIssueTitle
     scanIssueBody
     scanComments
@@ -350,7 +396,7 @@ object CoordBot extends Controller {
     val issueString = GithubAPI.getIssue(issueNumber)
     val issue = com.codahale.jerkson.Json.parse[GithubAPIIssue](issueString)
     // update comment view
-    checkIssueCommentView(issue) 
+    checkIssueCommentView(issue)
   }
 
   def initIssueCommentView = {
@@ -364,19 +410,24 @@ object CoordBot extends Controller {
 
   def setupEnv = {
     GithubAPI.initParameters(Config.gitHubUser, Config.gitHubPassword, Config.gitHubRepo, Config.gitHubUrl, Config.hookUrl)
-    Logger.info("Github Webook parameters: " + "\nUser: " + Config.gitHubUser + "\nRepository: " + Config.gitHubRepo + "\nHook url: " + Config.hookUrl)
+    Logger.info("Github Webhook parameters: " + "\nUser: " + Config.gitHubUser + "\nRepository: " + Config.gitHubRepo + "\nHook url: " + Config.hookUrl)
+    CoordBotUtil.deleteAllHooks
+    GithubAPI.setupAllRepoHooks
+  }
+  
+  def setupTempEnv = {
     CoordBotUtil.getLabels
     Logger.debug("Repo labels: " + totalLabelList.mkString(" "))
     val missinglabels = CoordBotUtil.missingLabels
     if (missinglabels.size != 0) {
       throw new MissingDefaultLabelsException("Default label(s) missing: " + missinglabels.mkString(" "))
     }
+    CoordBotUtil.getMilestones
   }
 
   def setupGithubEnv = {
     setupEnv
-    CoordBotUtil.deleteAllHooks
-    GithubAPI.setupAllRepoHooks
+    setupTempEnv
     coordBotInit = false
   }
 }

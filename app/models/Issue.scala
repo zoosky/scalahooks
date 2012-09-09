@@ -14,6 +14,10 @@ case class MissingDefaultLabelsException(msg: String) extends RuntimeException {
   override def toString: String = msg
 }
 
+case class MissingMilestoneMappingException(msg: String) extends RuntimeException {
+  override def toString: String = msg
+}
+
 case class Comment (comment: GithubAPIComment) {
   def Id: Long = {comment.id}
   def Body: String = {comment.body}
