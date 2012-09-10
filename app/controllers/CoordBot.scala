@@ -382,7 +382,7 @@ object CoordBot extends Controller {
       newIssue
     }
 
-    checkPullRequest
+    //checkPullRequest
     scanIssueTitle
     scanIssueBody
     scanComments
@@ -422,7 +422,7 @@ object CoordBot extends Controller {
     if (missinglabels.size != 0) {
       throw new MissingDefaultLabelsException("Default label(s) missing: " + missinglabels.mkString(" "))
     }
-    CoordBotUtil.getMilestones
+    //CoordBotUtil.getMilestones
   }
 
   def setupGithubEnv = {
