@@ -78,6 +78,17 @@ object GithubAPI {
     Logger.debug("Hook " + id.toString() + " deleted")
   }
   
+  def getPullRequest(pullNumber: Long): String = {
+    val req = url(gitHubUrl+"/pulls/"+pullNumber.toString())
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Get pull request "+ pullNumber.toString() + " response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
   def getOpenIssues: String = {
     /* 
      * list issues
@@ -95,7 +106,7 @@ object GithubAPI {
     ) 
   }
   
-  def getIssue(issueNumber: Long) = {
+  def getIssue(issueNumber: Long): String = {
     val req = url(gitHubUrl+"/issues/"+issueNumber.toString())
     val reqWithData = req
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
@@ -260,10 +271,22 @@ object GithubAPI {
     val jsonObject = generate(Map("milestone" -> milestoneNumber.toString()))
     val reqWithData = req << (jsonObject, "application/json")
     silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
-        Logger.info("Edit issue " + issueNumber.toString() + " response: " + response)
+        Logger.info("Edit issue " + issueNumber.toString() + " to milestone " + milestoneNumber.toString() + "response: " + response)
       }
     ) 
   }
+  
+  def getBranches: String = {
+    val req = url(gitHubUrl+"/branches")
+    val reqWithData = req
+    silentHttp( reqWithData.as_!(gitHubUser, gitHubPassword) >- { response =>
+        Logger.info("Get all branches response: " + response)
+        response
+        // response to be parsed by CoordBot
+      }
+    ) 
+  }
+  
 }
 
 /**
@@ -303,7 +326,31 @@ case class GithubAPIMilestone(url: String,
                               created_at: String, 
                               due_on: Option[String])
                               
-case class GithubAPIPullRequest(html_url: String, 
+case class GithubAPIPullRequestBase(label: String,
+                                    ref: String,
+                                    sha: String,
+                                    user: GithubAPIUser,
+                                    repo: JsonNode)
+
+case class GithubAPIPullRequest(url: String,
+                                html_url: String,
+                                diff_url: String,
+                                patch_url: String,
+                                issue_url: String,
+                                number: Long,
+                                state: String,
+                                title: String,
+                                body: String,
+                                created_at: String,
+                                updated_at: String,
+                                closed_at: String,
+                                merged_at: String,
+                                head: JsonNode,
+                                base: GithubAPIPullRequestBase,
+                                _links: JsonNode,
+                                user: GithubAPIUser)
+
+case class GithubAPIIssuePullRequest(html_url: String, 
                                 diff_url: String, 
                                 patch_url: String) 
                                 
@@ -318,7 +365,7 @@ case class GithubAPIIssue(url: String,
                           assignee: JsonNode, 
                           milestone: JsonNode, 
                           comments: Long, 
-                          pull_request: JsonNode, 
+                          pull_request: GithubAPIIssuePullRequest, 
                           closed_at: JsonNode, 
                           created_at: String, 
                           updated_at: String) 
