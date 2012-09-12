@@ -254,14 +254,16 @@ object CoordBotUtil {
     for (milestone <- milestones) {
       milestoneMap = milestoneMap.+=((milestone.title, milestone.number))
     }
+    Logger.debug("Get milestones done: " + milestoneMap.toString())
   }
   
   def getBranches = {
     val branchString = GithubAPI.getBranches
-    val branches = com.codahale.jerkson.Json.parse[List[GithubAPIMilestone]](branchString)
+    val branches = com.codahale.jerkson.Json.parse[List[GithubAPIBranch]](branchString)
     for (branch <- branches) {
-      branchList.+=(Config.gitHubUser+":"+branch)
+      branchList.+=(Config.gitHubUser+":"+branch.name)
     }
+    Logger.debug("Get branches done:" + branchList.toString())
   }
 
   def setupEnv = {
@@ -281,6 +283,8 @@ object CoordBotUtil {
     }
     getMilestones
     getBranches
+    if (!validMilestoneMapping)
+      throw new MissingMilestoneMappingException("Invalid milestone mapping")
   }
   
   def validMilestoneMapping: Boolean = {

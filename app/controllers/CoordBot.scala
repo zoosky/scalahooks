@@ -55,7 +55,7 @@ object CoordBot extends Controller {
           case e: ParsingException =>
             Logger.error(e.getMessage())
           case e: MissingMilestoneMappingException =>
-            Logger.error(e.getMessage())
+            Logger.error(e.toString())
           case _ =>
             Logger.error("Expecting JSON data")
         }
@@ -161,7 +161,7 @@ object CoordBot extends Controller {
       case e: ParsingException =>
         Logger.error(e.getMessage())
       case e: MissingMilestoneMappingException =>
-        Logger.error(e.getMessage())
+        Logger.error(e.toString())
       case _ =>
         Logger.error("Expecting JSON data")
     }
@@ -188,9 +188,11 @@ object CoordBot extends Controller {
         // check base label and set milestone
         CoordBotUtil.editIssueMilestone(issue.number)
         // add links to JIRA issue tracker
+        /*
         CoordBotUtil.JIRATickets(issue.title).map {
           ticket => 
         }
+        */
       }
     }
 
@@ -360,7 +362,7 @@ object CoordBot extends Controller {
       newIssue
     }
 
-    //checkPullRequest
+    checkPullRequest
     scanIssueBody
     scanComments
     addComments
