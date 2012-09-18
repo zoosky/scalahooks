@@ -23,8 +23,6 @@ import play.api.Logger
 object CoordBot extends Controller {
 
   var issueMap: Map[Long, Issue] = new HashMap[Long, Issue] with SynchronizedMap[Long, Issue]
-  var totalLabelList = new ListBuffer[String]
-  var milestoneMap: Map[String, Long] = new HashMap[String, Long]
   var coordBotInit = true
 
   /**
@@ -47,9 +45,8 @@ object CoordBot extends Controller {
         try {
           // setup web hooks
           setupGithubEnv
-          // initialize issue-comment view
-          issueMap.clear
-          initIssueCommentView
+          // refresh issue-comment view
+          refreshIssueCommentView
         } catch {
           case e: MalFormedJSONPayloadException =>
             Logger.error(e.toString())
@@ -58,7 +55,7 @@ object CoordBot extends Controller {
           case e: ParsingException =>
             Logger.error(e.getMessage())
           case e: MissingMilestoneMappingException =>
-            Logger.error(e.getMessage())
+            Logger.error(e.toString())
           case _ =>
             Logger.error("Expecting JSON data")
         }
@@ -130,24 +127,10 @@ object CoordBot extends Controller {
     }
   }
 
-  def editIssue(issue: GithubAPIIssue): GithubAPIIssue = {
-    var newIssueBody = issue.body
-    val links = CoordBotUtil.missingJIRALinks(issue.body, CoordBotUtil.JIRATickets(issue.title))
-    if (links.size > 0) {
-      Logger.debug("Add JIRA links to the body of issue " + issue.number)
-      newIssueBody = links.mkString("", "\n", "\n") + issue.body
-      GithubAPI.editIssueBody(issue.number, newIssueBody)
-    }
-    issue.copy(body = newIssueBody)
-  }
-
   def actorCheckIssueCommentView = {
     def refreshView = {
-      issueMap.clear
-      initIssueCommentView
-      totalLabelList.clear
-      CoordBotUtil.getLabels
-      CoordBotUtil.getMilestones
+      CoordBotUtil.setupTempEnv
+      refreshIssueCommentView
     }
     def checkView = {
       issueMap.keySet.map { key =>
@@ -178,7 +161,7 @@ object CoordBot extends Controller {
       case e: ParsingException =>
         Logger.error(e.getMessage())
       case e: MissingMilestoneMappingException =>
-        Logger.error(e.getMessage())
+        Logger.error(e.toString())
       case _ =>
         Logger.error("Expecting JSON data")
     }
@@ -203,29 +186,26 @@ object CoordBot extends Controller {
       if (issue.pull_request.html_url != null) {
         Logger.debug("A Pull Request!")
         // check base label and set milestone
-        val pullString = GithubAPI.getPullRequest(issue.number)
-        val pull = com.codahale.jerkson.Json.parse[GithubAPIPullRequest](pullString)
-        Config.pullRequestMileStone.get(pull.base.label) match {
-          case Some(milestone) =>
-            milestoneMap.get(milestone) match {
-              case Some(milestoneNumber) =>
-                GithubAPI.editIssueMilestone(issue.number, milestoneNumber)
-              case None =>
-                "Ooops, something is wrong."
-                Logger.error("Cannot find milestone: " + milestone)
-                throw new MissingMilestoneMappingException("Cannot find milestone: " + milestone)
-            }
-          case None =>
-            "Ooops, something is wrong."
-            Logger.error("Cannot find the milestone mapping of " + pull.base.label)
-            throw new MissingMilestoneMappingException("Cannot find the milestone mapping of " + pull.base.label)
-        }
+        CoordBotUtil.editIssueMilestone(issue.number)
         // add links to JIRA issue tracker
-
+        /*
+        CoordBotUtil.JIRATickets(issue.title).map {
+          ticket => 
+        }
+        */
       }
     }
 
-    def scanIssueTitle = {}
+    def editIssue(issue: GithubAPIIssue): GithubAPIIssue = {
+      var newIssueBody = issue.body
+      val links = CoordBotUtil.missingJIRALinks(issue.body, CoordBotUtil.JIRATickets(issue.title))
+      if (links.size > 0) {
+        Logger.debug("Add JIRA links to the body of issue " + issue.number)
+        newIssueBody = links.mkString("", "\n", "\n") + issue.body
+        GithubAPI.editIssueBody(issue.number, newIssueBody)
+      }
+      issue.copy(body = newIssueBody)
+    }
 
     def scanIssueBody = {
       val rstatus = CoordBotUtil.getReviewStatus(issue.body)
@@ -238,7 +218,7 @@ object CoordBot extends Controller {
         case ReviewFault =>
           "Add illegal reviewer comment"
           rStatus = rstatus
-          rStatus.msg = "Web Bot: unrecognized reviewers by @" + issue.user.login + " : " + rstatus.reviewers.filter { reviewer => !Config.reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
+          rStatus.msg = "Web Bot: unrecognized reviewers by @" + issue.user.login + " : " + rstatus.reviewers.filter { reviewer => !Config.reviewerList.contains(reviewer) }.mkString(" ")
         case _ => "Do nothing"
       }
     }
@@ -246,7 +226,7 @@ object CoordBot extends Controller {
     def scanComments = {
       commentList.++=(CoordBotUtil.getCommentsOnIssue(issue.number).sortWith((a, b) => a.getCreateTime < b.getCreateTime))
       commentList.map { comment =>
-        CoordBotUtil.processComment(comment.Body) match {
+        CoordBotUtil.processComment(comment) match {
           case (bstate, tstate, rstatus) =>
             // get comment type
             CoordBotUtil.getCommentType(bstate, tstate, rstatus) match {
@@ -306,7 +286,7 @@ object CoordBot extends Controller {
               case ReviewFault =>
                 "Add illegal reviewer comment"
                 rStatus = rstatus
-                rStatus.msg = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + rstatus.reviewers.filter { reviewer => !Config.reviewerList.contains(reviewer) }.map { _.drop(1) }.mkString(" ")
+                rStatus.msg = "Web Bot: unrecognized reviewers by @" + comment.User + " : " + rstatus.reviewers.filter { reviewer => !Config.reviewerList.contains(reviewer) }.mkString(" ")
               case ReviewDone =>
                 "Add the reviewed label"
                 reviewList = reviewList.map { review => if (review.getReviewer == comment.User) { review.copy(rStatus = ReviewDone) } else review }
@@ -369,7 +349,7 @@ object CoordBot extends Controller {
     }
 
     def updateIssue: Issue = {
-      var newIssue = new Issue(issue)
+      var newIssue = new Issue(editIssue(issue))
       newIssue.updateBState(bState)
       newIssue.updateTState(tState)
       newIssue.updateRStatus(rStatus)
@@ -382,8 +362,7 @@ object CoordBot extends Controller {
       newIssue
     }
 
-    //checkPullRequest
-    scanIssueTitle
+    checkPullRequest
     scanIssueBody
     scanComments
     addComments
@@ -399,35 +378,29 @@ object CoordBot extends Controller {
     checkIssueCommentView(issue)
   }
 
+  def refreshIssueCommentView = {
+    issueMap.clear
+    initIssueCommentView
+  }
+
   def initIssueCommentView = {
     val issueString = GithubAPI.getOpenIssues
     val issues = com.codahale.jerkson.Json.parse[List[GithubAPIIssue]](issueString)
     for (issue <- issues) {
-      issueMap = issueMap.+((issue.number, checkIssueCommentView(editIssue(issue))))
+      issueMap = issueMap.+((issue.number, checkIssueCommentView(issue)))
     }
-    CoordBotUtil.printIssueMap
+    printIssueMap
   }
 
-  def setupEnv = {
-    GithubAPI.initParameters(Config.gitHubUser, Config.gitHubPassword, Config.gitHubRepo, Config.gitHubUrl, Config.hookUrl)
-    Logger.info("Github Webhook parameters: " + "\nUser: " + Config.gitHubUser + "\nRepository: " + Config.gitHubRepo + "\nHook url: " + Config.hookUrl)
-    CoordBotUtil.deleteAllHooks
-    GithubAPI.setupAllRepoHooks
-  }
-  
-  def setupTempEnv = {
-    CoordBotUtil.getLabels
-    Logger.debug("Repo labels: " + totalLabelList.mkString(" "))
-    val missinglabels = CoordBotUtil.missingLabels
-    if (missinglabels.size != 0) {
-      throw new MissingDefaultLabelsException("Default label(s) missing: " + missinglabels.mkString(" "))
+  def printIssueMap = {
+    for (issue <- issueMap.values) {
+      Logger.debug(issue.toString())
     }
-    //CoordBotUtil.getMilestones
   }
 
   def setupGithubEnv = {
-    setupEnv
-    setupTempEnv
+    CoordBotUtil.setupEnv
+    CoordBotUtil.setupTempEnv
     coordBotInit = false
   }
 }

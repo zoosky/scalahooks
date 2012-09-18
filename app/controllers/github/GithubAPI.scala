@@ -389,3 +389,5 @@ case class GithubAPIHook(url: String,
                          last_response: JsonNode,
                          id: Long)
                             
+case class GithubAPIBranch(name: String,
+                           commit: JsonNode)

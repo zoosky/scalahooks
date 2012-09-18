@@ -30,7 +30,7 @@ case class Comment (comment: GithubAPIComment) {
 }
 
 case class Review(reviewer: String, rStatus: ReviewStatus) {
-  def getReviewer = reviewer.drop(1)
+  def getReviewer = reviewer
 }
 
 case class Issue (issue: GithubAPIIssue) {

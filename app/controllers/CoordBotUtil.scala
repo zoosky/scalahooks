@@ -8,9 +8,15 @@ import play.api.Logger
 import models._
 import math._
 import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.HashMap
+import scala.collection.mutable.Map
 
 object CoordBotUtil {
-  
+
+  var totalLabelList = new ListBuffer[String]
+  var milestoneMap: Map[String, Long] = new HashMap[String, Long]
+  var branchList = new ListBuffer[String]
+
   val dateParser = ISODateTimeFormat.dateTimeNoMillis();
   def parseISO8601(date: String): Date = {
     dateParser.parseDateTime(date).toDate()
@@ -39,8 +45,12 @@ object CoordBotUtil {
     }
   }
 
-  def processComment(msg: String): (BuildState, TestState, ReviewStatus) = {
-    (getBuildState(msg), getTestState(msg), getReviewStatus(msg))
+  def processComment(comment: Comment): (BuildState, TestState, ReviewStatus) = {
+    val msg = comment.Body
+    val bstate = if (comment.User == Config.buildBot) getBuildState(msg) else BuildNone
+    val tstate = if (comment.User == Config.buildBot) getTestState(msg) else TestNone
+    val rstatus = getReviewStatus(msg)
+    (bstate, tstate, rstatus)
   }
 
   def getCommentType(bState: BuildState, tState: TestState, rStatus: ReviewStatus): CommentType = {
@@ -71,8 +81,8 @@ object CoordBotUtil {
       var tokens = new ListBuffer[String]
       var rstatus: ReviewStatus = ReviewOpen
       tokens.++=(msg.split(" "))
-      val reviewers = tokens.filter(token => token.contains("@")) // assume all reviewers are specified in one comment
-      Logger.debug("Specified reviewers: " + reviewers.map {_.drop(1)}.mkString(" "))
+      val reviewers = tokens.filter(token => token.contains("@")).drop(1) // assume all reviewers are specified in one comment
+      Logger.debug("Specified reviewers: " + reviewers.mkString(" "))
       for (token <- reviewers; if !Config.reviewerList.contains(token)) {
         rstatus = ReviewFault
         rstatus.reviewers = reviewers
@@ -172,12 +182,12 @@ object CoordBotUtil {
     val labelString = GithubAPI.getLabels
     val labels = com.codahale.jerkson.Json.parse[List[GithubAPILabel]](labelString)
     for (label <- labels) {
-      CoordBot.totalLabelList.+=(label.name)
+      totalLabelList.+=(label.name)
     }
   }
 
   def missingLabels: List[String] = {
-    val missingLabels = for (label <- Config.defaultLabelList; if (!CoordBot.totalLabelList.contains(label)))
+    val missingLabels = for (label <- Config.defaultLabelList; if (!totalLabelList.contains(label)))
       yield label
     missingLabels
   }
@@ -229,7 +239,7 @@ object CoordBotUtil {
   def deleteAllHooks = {
     getAllHooks.map { hook => GithubAPI.deleteHook(hook.id) }
   }
-  
+
   def checkExpiredReviewWarning(reviewWarning: Comment): Boolean = {
     def checkDay: Boolean = { CoordBotUtil.milliSecToDay(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > Config.waitDayInterval }
     def checkHour: Boolean = { CoordBotUtil.milliSecToHour(abs(reviewWarning.getCreateTime - Calendar.getInstance.getTime().getTime())) > Config.waitHourInterval }
@@ -237,18 +247,74 @@ object CoordBotUtil {
     def check: Boolean = checkHour
     check
   }
-  
-  def printIssueMap = {
-    for (issue <- CoordBot.issueMap.values) {
-      Logger.debug(issue.toString())
-    }
-  }
-  
+
   def getMilestones = {
     val milestoneString = GithubAPI.getMilestones
     val milestones = com.codahale.jerkson.Json.parse[List[GithubAPIMilestone]](milestoneString)
     for (milestone <- milestones) {
-      CoordBot.milestoneMap = CoordBot.milestoneMap.+=((milestone.title, milestone.number))
+      milestoneMap = milestoneMap.+=((milestone.title, milestone.number))
+    }
+    Logger.debug("Get milestones done: " + milestoneMap.toString())
+  }
+  
+  def getBranches = {
+    val branchString = GithubAPI.getBranches
+    val branches = com.codahale.jerkson.Json.parse[List[GithubAPIBranch]](branchString)
+    for (branch <- branches) {
+      branchList.+=(Config.gitHubUser+":"+branch.name)
+    }
+    Logger.debug("Get branches done:" + branchList.toString())
+  }
+
+  def setupEnv = {
+    GithubAPI.initParameters(Config.gitHubUser, Config.gitHubPassword, Config.gitHubRepo, Config.gitHubUrl, Config.hookUrl)
+    Logger.info("Github Webhook parameters: " + "\nUser: " + Config.gitHubUser + "\nRepository: " + Config.gitHubRepo + "\nHook url: " + Config.hookUrl)
+    CoordBotUtil.deleteAllHooks
+    GithubAPI.setupAllRepoHooks
+  }
+
+  def setupTempEnv = {
+    totalLabelList.clear
+    getLabels
+    Logger.debug("Repo labels: " + totalLabelList.mkString(" "))
+    val missinglabels = missingLabels
+    if (missinglabels.size != 0) {
+      throw new MissingDefaultLabelsException("Default label(s) missing: " + missinglabels.mkString(" "))
+    }
+    getMilestones
+    getBranches
+    if (!validMilestoneMapping)
+      throw new MissingMilestoneMappingException("Invalid milestone mapping")
+  }
+  
+  def validMilestoneMapping: Boolean = {
+    for (branch <- Config.pullRequestMilestoneMap.keySet) {
+      if (!branchList.contains(branch)) return false
+      Config.pullRequestMilestoneMap.get(branch) match {
+        case None => return false;
+        case _ => "OK"
+      }
+    }
+    return true
+  }
+
+  def editIssueMilestone(issueNumber: Long) = {
+    val pullString = GithubAPI.getPullRequest(issueNumber)
+    val pull = com.codahale.jerkson.Json.parse[GithubAPIPullRequest](pullString)
+    Config.pullRequestMilestoneMap.get(pull.base.label) match {
+      case Some(milestone) =>
+        milestoneMap.get(milestone) match {
+          case Some(milestoneNumber) =>
+            GithubAPI.editIssueMilestone(issueNumber, milestoneNumber)
+          case None =>
+            "Ooops, something is wrong."
+            Logger.error("Cannot find milestone: " + milestone)
+            throw new MissingMilestoneMappingException("Cannot find milestone: " + milestone)
+        }
+      case None =>
+        "Ooops, something is wrong."
+        Logger.error("Cannot find the milestone mapping of " + pull.base.label)
+        throw new MissingMilestoneMappingException("Cannot find the milestone mapping of " + pull.base.label)
     }
   }
 }
