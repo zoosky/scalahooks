@@ -81,7 +81,7 @@ object CoordBotUtil {
       var tokens = new ListBuffer[String]
       var rstatus: ReviewStatus = ReviewOpen
       tokens.++=(msg.split(" "))
-      val reviewers = tokens.filter(token => token.contains("@")).drop(1) // assume all reviewers are specified in one comment
+      val reviewers = tokens.filter(token => token.contains("@")).map(_.drop(1)) // assume all reviewers are specified in one comment
       Logger.debug("Specified reviewers: " + reviewers.mkString(" "))
       for (token <- reviewers; if !Config.reviewerList.contains(token)) {
         rstatus = ReviewFault
